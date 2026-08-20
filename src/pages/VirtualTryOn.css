@@ -1,0 +1,762 @@
+/* ============================================
+   VirtualTryOn Page Styles
+   ============================================ */
+
+.virtual-tryon-page {
+  min-height: 100vh;
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Layout */
+.tryon-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 1.5rem;
+  height: calc(100vh - 3rem);
+}
+
+/* ============================================
+   Mirror Section
+   ============================================ */
+
+.mirror-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.mirror-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  gap: 1rem;
+}
+
+/* Mirror Frame */
+.mirror-frame {
+  flex: 1;
+  border-radius: 24px;
+  overflow: hidden;
+  position: relative;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 40px rgba(108, 99, 255, 0.1),
+    inset 0 0 60px rgba(0, 0, 0, 0.3);
+}
+
+.mirror-frame::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(108, 99, 255, 0.5),
+    rgba(0, 194, 255, 0.5),
+    transparent
+  );
+  z-index: 5;
+  border-radius: 2px;
+}
+
+/* Camera Preview */
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 15, 30, 0.95) 0%,
+    rgba(10, 10, 25, 0.98) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 0.4s ease;
+  overflow: hidden;
+}
+
+.lighting-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: background 0.5s ease;
+  z-index: 1;
+}
+
+/* Camera Placeholder */
+.camera-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  z-index: 2;
+  position: relative;
+}
+
+.camera-icon-wrapper {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-icon {
+  font-size: 2rem;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.camera-text {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  text-align: center;
+}
+
+.camera-subtext {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.25);
+  margin-top: -0.5rem;
+}
+
+/* AR Overlay / Silhouette */
+.ar-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ar-silhouette {
+  position: absolute;
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ar-silhouette-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.silhouette-head {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(108, 99, 255, 0.2);
+  background: rgba(108, 99, 255, 0.05);
+}
+
+.silhouette-torso {
+  width: 70px;
+  height: 80px;
+  border-radius: 12px 12px 6px 6px;
+  border: 2px solid rgba(108, 99, 255, 0.2);
+  background: rgba(108, 99, 255, 0.05);
+}
+
+.silhouette-legs {
+  width: 64px;
+  height: 90px;
+  border-radius: 6px 6px 4px 4px;
+  border: 2px solid rgba(108, 99, 255, 0.2);
+  background: rgba(108, 99, 255, 0.05);
+}
+
+/* Zoom Indicator */
+.zoom-indicator {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.8rem;
+  font-weight: 500;
+  z-index: 4;
+}
+
+/* Lighting Badge */
+.lighting-badge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.8rem;
+  font-weight: 500;
+  z-index: 4;
+}
+
+/* Flash Effect */
+.flash-overlay {
+  position: absolute;
+  inset: 0;
+  background: white;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ============================================
+   Captured Photo Preview
+   ============================================ */
+
+.captured-preview {
+  position: absolute;
+  bottom: 100px;
+  left: 16px;
+  z-index: 6;
+}
+
+.captured-card {
+  padding: 0.75rem !important;
+}
+
+.captured-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.captured-image-placeholder {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  background: rgba(108, 99, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  color: var(--primary, #6C63FF);
+  flex-shrink: 0;
+}
+
+.captured-image-placeholder svg {
+  font-size: 1.5rem;
+}
+
+.captured-image-placeholder span {
+  font-size: 0.55rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.captured-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.captured-time {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.captured-lighting {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: capitalize;
+}
+
+.captured-dismiss {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.captured-dismiss:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+/* ============================================
+   Controls Bar
+   ============================================ */
+
+.controls-bar {
+  flex-shrink: 0;
+}
+
+.controls-card {
+  padding: 1rem 1.5rem !important;
+}
+
+.controls-layout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.controls-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.controls-group-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: 600;
+}
+
+/* Lighting Controls */
+.lighting-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lighting-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all 0.3s ease;
+}
+
+.lighting-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.lighting-btn.active {
+  background: linear-gradient(135deg, var(--primary, #6C63FF), var(--accent, #8B5CF6));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(108, 99, 255, 0.3);
+}
+
+/* Zoom Slider */
+.zoom-controls {
+  flex: 1;
+  max-width: 200px;
+}
+
+.zoom-slider-wrapper {
+  width: 100%;
+  padding: 0 0.25rem;
+}
+
+.zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary, #6C63FF), var(--secondary, #00C2FF));
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.4);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.zoom-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.zoom-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary, #6C63FF), var(--secondary, #00C2FF));
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.4);
+  border: none;
+  cursor: pointer;
+}
+
+/* Action Controls */
+.action-controls {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 1rem !important;
+}
+
+.flip-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+.flip-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.flip-btn-spacer {
+  width: 44px;
+}
+
+/* Capture Button */
+.capture-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition: border-color 0.3s ease;
+}
+
+.capture-btn:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.capture-btn-inner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary, #6C63FF), var(--secondary, #00C2FF));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.4rem;
+  transition: all 0.2s ease;
+}
+
+.capture-btn:hover .capture-btn-inner {
+  transform: scale(0.95);
+}
+
+/* Capture Button Pulse Animation */
+.capture-btn::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(108, 99, 255, 0.3);
+  animation: capturePulse 2s ease-in-out infinite;
+}
+
+@keyframes capturePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   Side Panel
+   ============================================ */
+
+.tryon-side-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.side-panel-card {
+  flex: 1;
+  padding: 1.5rem !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-panel-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 0.25rem;
+}
+
+.side-panel-subtitle {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 1.5rem;
+}
+
+/* Try-On Items List */
+.tryon-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  margin-bottom: 1.5rem;
+}
+
+.tryon-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: default;
+  transition: all 0.3s ease;
+}
+
+.tryon-item:hover {
+  background: rgba(108, 99, 255, 0.08);
+  border-color: rgba(108, 99, 255, 0.15);
+}
+
+.tryon-item-emoji {
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.tryon-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.tryon-item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tryon-item-category {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tryon-item-icon {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* Side Panel Actions */
+.side-panel-actions {
+  margin-top: auto;
+}
+
+.side-panel-actions .animated-btn.primary {
+  background: linear-gradient(135deg, var(--primary, #6C63FF), var(--accent, #8B5CF6));
+  box-shadow: 0 4px 20px rgba(108, 99, 255, 0.3);
+}
+
+.side-panel-actions .animated-btn.primary:hover {
+  box-shadow: 0 6px 25px rgba(108, 99, 255, 0.45);
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .tryon-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .mirror-section {
+    min-height: 60vh;
+  }
+
+  .mirror-container {
+    min-height: 60vh;
+  }
+
+  .tryon-side-panel {
+    height: auto;
+  }
+
+  .tryon-items-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .virtual-tryon-page {
+    padding: 0.75rem;
+  }
+
+  .tryon-layout {
+    gap: 1rem;
+  }
+
+  .mirror-section {
+    min-height: 50vh;
+  }
+
+  .mirror-container {
+    min-height: 50vh;
+  }
+
+  .controls-layout {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .controls-card {
+    padding: 1rem !important;
+  }
+
+  .zoom-controls {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .action-controls {
+    justify-content: center;
+  }
+
+  .tryon-items-list {
+    grid-template-columns: 1fr;
+  }
+
+  .mirror-frame {
+    border-radius: 18px;
+  }
+
+  .captured-preview {
+    left: 8px;
+    bottom: 90px;
+  }
+}
+
+@media (max-width: 480px) {
+  .virtual-tryon-page {
+    padding: 0.5rem;
+  }
+
+  .lighting-buttons {
+    gap: 0.35rem;
+  }
+
+  .lighting-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .capture-btn {
+    width: 56px;
+    height: 56px;
+  }
+
+  .capture-btn-inner {
+    width: 44px;
+    height: 44px;
+    font-size: 1.2rem;
+  }
+
+  .flip-btn {
+    width: 38px;
+    height: 38px;
+    font-size: 1rem;
+  }
+
+  .flip-btn-spacer {
+    width: 38px;
+  }
+
+  .mirror-frame {
+    border-radius: 14px;
+  }
+
+  .camera-icon-wrapper {
+    width: 60px;
+    height: 60px;
+  }
+
+  .camera-icon {
+    font-size: 1.5rem;
+  }
+
+  .camera-text {
+    font-size: 0.85rem;
+  }
+}

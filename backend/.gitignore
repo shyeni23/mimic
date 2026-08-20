@@ -1,0 +1,17 @@
+# Secrets -- NEVER commit
+.env
+
+# Virtual environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Model weight caches (re-downloaded on first run, see requirements.txt)
+.cache/
+*.pt
+*.onnx

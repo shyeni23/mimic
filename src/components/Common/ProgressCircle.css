@@ -1,0 +1,43 @@
+.progress-circle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-circle svg {
+  transform: rotate(0deg);
+}
+
+.progress-bg {
+  fill: none;
+  stroke: var(--bg-tertiary);
+}
+
+.progress-fill {
+  fill: none;
+  stroke: url(#progressGradient);
+  filter: drop-shadow(0 0 6px rgba(108, 99, 255, 0.4));
+}
+
+.progress-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.progress-value {
+  font-family: var(--font-primary);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.progress-text {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

@@ -1,0 +1,115 @@
+.animated-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-primary);
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all var(--transition-base);
+}
+
+.animated-btn .btn-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transition: all var(--transition-base);
+}
+
+.animated-btn .btn-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.animated-btn .btn-icon {
+  display: flex;
+  align-items: center;
+  font-size: 1.1em;
+}
+
+.animated-btn.small {
+  padding: 8px 20px;
+  font-size: 0.85rem;
+}
+
+.animated-btn.medium {
+  padding: 12px 28px;
+  font-size: 0.95rem;
+}
+
+.animated-btn.large {
+  padding: 16px 36px;
+  font-size: 1.05rem;
+}
+
+.animated-btn.full-width {
+  width: 100%;
+}
+
+.animated-btn.primary .btn-bg {
+  background: var(--gradient-primary);
+}
+.animated-btn.primary {
+  color: white;
+  box-shadow: 0 4px 15px rgba(108, 99, 255, 0.3);
+}
+.animated-btn.primary:hover {
+  box-shadow: 0 6px 25px rgba(108, 99, 255, 0.5);
+}
+
+.animated-btn.secondary .btn-bg {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-color);
+}
+.animated-btn.secondary {
+  color: var(--text-primary);
+}
+.animated-btn.secondary:hover .btn-bg {
+  border-color: var(--primary);
+}
+
+.animated-btn.ghost {
+  color: var(--primary);
+  background: transparent;
+}
+.animated-btn.ghost:hover {
+  background: rgba(108, 99, 255, 0.1);
+}
+
+.animated-btn.outline .btn-bg {
+  border: 2px solid var(--primary);
+  background: transparent;
+}
+.animated-btn.outline {
+  color: var(--primary);
+}
+.animated-btn.outline:hover .btn-bg {
+  background: rgba(108, 99, 255, 0.1);
+}
+
+.animated-btn.danger .btn-bg {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+}
+.animated-btn.danger {
+  color: white;
+}
+
+.animated-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.animated-btn .btn-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0);
+  pointer-events: none;
+}

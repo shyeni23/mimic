@@ -1,0 +1,6 @@
+name,category,color,occasion,style_tags,image_path,price,stock
+Black Midi Dress,dress,black,wedding;party;formal,fitted;elegant,data/images/black_midi_dress.jpg,49.99,12
+Blue Oxford Shirt,top,blue,office;casual,classic;smart casual,data/images/blue_oxford_shirt.jpg,29.99,20
+Beige Tailored Pants,bottom,beige,office;formal,tailored;minimal,data/images/beige_tailored_pants.jpg,34.99,15
+White Sneakers,footwear,white,casual;smart casual,everyday;minimal,data/images/white_sneakers.jpg,59.99,25
+Gold Watch,watch,gold,formal;party,classic;statement,data/images/gold_watch.jpg,89.99,8

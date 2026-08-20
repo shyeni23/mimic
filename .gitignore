@@ -13,6 +13,7 @@
 
 # misc
 .DS_Store
+.env
 .env.local
 .env.development.local
 .env.test.local
@@ -21,3 +22,12 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Claude Code local session/config (machine-specific, not shared)
+.claude/
+
+# Backend (Python/FastAPI) -- see backend/.gitignore for the full set
+backend/venv/
+backend/.env
+backend/__pycache__/
+backend/.pytest_cache/
