@@ -24,8 +24,15 @@ LEFT_SHOULDER_APPROX, RIGHT_SHOULDER_APPROX = 234, 454
 
 @lru_cache
 def _get_glasses_classifier():
-    from glasses_detector import AnyglassesClassifier
-    return AnyglassesClassifier(base_model="small", pretrained=True).eval()
+    # glasses-detector==1.0.1 (the version pinned in requirements.txt) renamed
+    # the old per-kind classes (AnyglassesClassifier, etc.) into one unified
+    # GlassesClassifier(kind=..., size=...) -- the old class no longer exists
+    # in this package version, which silently broke every scan's glasses
+    # detection (caught it failing with "cannot import name
+    # 'AnyglassesClassifier'" at server startup). kind="anyglasses" +
+    # size="small" is the direct equivalent of the old base_model="small".
+    from glasses_detector import GlassesClassifier
+    return GlassesClassifier(kind="anyglasses", size="small", weights=True)
 
 
 def detect_glasses(image_bgr: np.ndarray, face_landmarks: list[dict]) -> dict:
@@ -60,7 +67,7 @@ def detect_glasses(image_bgr: np.ndarray, face_landmarks: list[dict]) -> dict:
     return {
         "glasses_detected": bool(prediction > 0.5),
         "confidence": round(float(prediction if prediction > 0.5 else 1 - prediction), 2),
-        "model": "mantasu/glasses-detector (AnyglassesClassifier, small)",
+        "model": "mantasu/glasses-detector (GlassesClassifier, kind=anyglasses, size=small)",
     }
 
 

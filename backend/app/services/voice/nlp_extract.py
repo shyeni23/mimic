@@ -1,10 +1,17 @@
 """
-Extracts structured context (occasion, formality, location, time-of-day) from
-free-form conversational text using fast regex/keyword matching.
+Fast regex pre-extraction of structured context from chat messages.
 
-Previously used Ollama LLM for this, but on CPU-constrained machines that added
-~4 minutes per chat turn. The regex approach handles the common patterns
-instantly and the agent LLM handles nuance in its own turn anyway.
+Two extraction paths coexist intentionally:
+  1. THIS FILE (regex) -- runs BEFORE the LLM, instant. Its stated_height_cm
+     writes to the scan DB (the only place height-from-speech is captured).
+     The rest (occasion, formality, etc.) is returned in ChatResponse.extracted_context
+     for the frontend but does NOT feed into recommendations.
+  2. graph.py's ConversationState (LLM) -- the authoritative extraction that
+     drives recommendations via merge_preferences. Extracts occasion, style,
+     colors, budget, fit, etc.
+
+The overlap (occasion) is harmless: the regex result goes to the frontend as
+quick feedback, the LLM result drives actual behavior.
 """
 import re
 

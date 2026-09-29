@@ -37,9 +37,164 @@
   font-size: 0.95rem;
 }
 
+/* ── "Based on your scan" strip ── */
+.rec-scan-profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.rec-scan-profile-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-right: 4px;
+}
+
+.rec-range-control {
+  gap: 6px;
+}
+
+.rec-range-btn {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  padding: 2px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rec-range-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--primary);
+}
+
+.rec-range-btn.active {
+  background: var(--gradient-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+.rec-range-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rec-range-control em {
+  font-style: normal;
+  color: var(--warning, #f59e0b);
+  font-size: 0.72rem;
+}
+
+.rec-scan-profile .rec-meta-tag strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── "What should I include?" picker ── */
+.rec-include {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.rec-include-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 4px;
+}
+
+.rec-include-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-glass-light);
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  padding: 5px 13px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rec-include-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--primary);
+}
+
+.rec-include-btn.active {
+  background: var(--gradient-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+.rec-include-reset {
+  background: transparent;
+  font-style: italic;
+}
+
 /* ── Filters ── */
 .rec-filters {
   margin-bottom: 28px;
+}
+
+.rec-filters > .filter-chips + .filter-chips {
+  margin-top: 10px;
+}
+
+/* ── Complete-look sections (post-scan) ── */
+.rec-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.rec-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.rec-section-header h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.rec-section-header span {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.rec-group + .rec-group {
+  margin-top: 22px;
+}
+
+.rec-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--primary);
+}
+
+.rec-group-header h3 {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.rec-group-header span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 /* ── Product Grid ── */

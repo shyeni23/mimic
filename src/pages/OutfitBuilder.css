@@ -170,6 +170,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 14px;
+  overflow: hidden;
   background: radial-gradient(
     circle at center,
     color-mix(in srgb, var(--item-color, #6C63FF) 15%, transparent),
@@ -270,6 +271,14 @@
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.item-emoji-img,
+.slot-emoji-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .slot-details {

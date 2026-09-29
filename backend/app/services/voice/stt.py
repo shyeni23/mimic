@@ -45,7 +45,19 @@ def transcribe_audio_bytes(audio_bytes: bytes, filename_hint: str = "audio.wav")
         # CPU-constrained machine beam search multiplies transcription time
         # for a real-time voice UI with negligible accuracy loss on short
         # conversational utterances.
-        segments, info = model.transcribe(tmp.name, beam_size=1, vad_filter=True)
+        #
+        # vad_filter=False: the frontend's own RMS-based voice-activity
+        # detection (AIStylist.js's hands-free VAD) already gates what gets
+        # recorded and sent here at all -- every clip that reaches this
+        # function was already judged to contain speech once. Stacking
+        # faster-whisper's OWN (Silero-based) VAD filter on top was observed
+        # to silently drop short/quiet real utterances to an empty
+        # transcript, which read as "the mirror isn't listening" with no
+        # error anywhere. One VAD layer (the one that decides whether to
+        # record at all) is enough.
+        segments, info = model.transcribe(
+            tmp.name, beam_size=1, vad_filter=False, language=settings.whisper_language,
+        )
         text_segments = list(segments)
     finally:
         os.unlink(tmp.name)

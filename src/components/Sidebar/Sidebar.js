@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   RiDashboardLine, RiBodyScanLine, RiSparklingLine, RiMessage3Line,
   RiShirtLine, RiCameraLine, RiHeartLine, RiShoppingBag3Line,
-  RiUserLine, RiSettings4Line, RiCloseLine
+  RiUserLine, RiSettings4Line, RiCloseLine, RiCustomerService2Line
 } from 'react-icons/ri';
 import './Sidebar.css';
 
@@ -18,6 +18,7 @@ const iconMap = {
   RiShoppingBag3Line: RiShoppingBag3Line,
   RiUserLine: RiUserLine,
   RiSettings4Line: RiSettings4Line,
+  RiCustomerService2Line: RiCustomerService2Line,
 };
 
 const navItems = [
@@ -30,6 +31,7 @@ const navItems = [
   { path: '/personalization', label: 'Personalization', icon: 'RiHeartLine' },
   { path: '/shopping', label: 'Shopping', icon: 'RiShoppingBag3Line' },
   { path: '/profile', label: 'Profile', icon: 'RiUserLine' },
+  { path: '/staff-requests', label: 'Staff Assistance', icon: 'RiCustomerService2Line' },
   { path: '/settings', label: 'Settings', icon: 'RiSettings4Line' },
 ];
 
@@ -40,9 +42,9 @@ export default function Sidebar({ isOpen, onClose }) {
         {isOpen && (
           <motion.div
             className="sidebar-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, pointerEvents: 'none' }}
+            animate={{ opacity: 1, pointerEvents: 'auto' }}
+            exit={{ opacity: 0, pointerEvents: 'none' }}
             onClick={onClose}
           />
         )}

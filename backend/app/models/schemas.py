@@ -18,6 +18,13 @@ class ScanResponse(BaseModel):
     height_confidence: float
     glasses_detected: bool
     hair_length: str            # "short" | "medium" | "long" | "unknown"
+    gender: str                 # "male" | "female" | "unknown"
+    gender_confidence: float
+
+
+class ScanGenderRequest(BaseModel):
+    session_id: str
+    gender: str   # 'male' | 'female' | 'unknown' (unknown = show both departments)
 
 
 class CalibrationRequest(BaseModel):
@@ -29,6 +36,22 @@ class RecommendRequest(BaseModel):
     session_id: str
     occasion: str | None = None
     category: str | None = None
+    # grouped=True (and no category) returns the post-scan "complete look":
+    # one short ranked list PER category (tops, bottoms, dresses, footwear,
+    # bags, watches, jewellery, accessories) as `sections`, plus a
+    # round-robin flattened `results`. See inventory_search.recommend_complete_look.
+    grouped: bool = False
+    per_category: int = 3
+    # Which item categories the customer actually wants shown, e.g.
+    # ["dress", "bag", "footwear"] -- nothing else is built. Empty/None =
+    # the full look. `items_text` is the raw answer to "what should I
+    # include?" and is parsed server-side (parse_requested_items) so the
+    # frontend and the agent don't each need their own vocabulary.
+    include: list[str] | None = None
+    items_text: str | None = None
+    # True when the customer named the occasion herself -- every group is
+    # then hard-filtered to it instead of treating it as a preference.
+    strict_occasion: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -41,6 +64,7 @@ class AgentEventRequest(BaseModel):
     session_id: str
     event: str                # e.g. "scan_complete", "recommendations_idle", "item_focused_long"
     role: str = "customer"
+    context: dict = {}        # event details, e.g. item_liked -> {item_id, name, category}
 
 
 class UIAction(BaseModel):
@@ -59,3 +83,7 @@ class ChatResponse(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice: str | None = None
+
+
+class StaffRequestStatusUpdate(BaseModel):
+    status: str   # "pending" | "acknowledged" | "resolved"

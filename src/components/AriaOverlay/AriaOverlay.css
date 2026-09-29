@@ -1,0 +1,430 @@
+/* ── Overlay Container ── */
+.aria-overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.aria-overlay > * {
+  pointer-events: auto;
+}
+
+/* ── The Orb ── */
+.aria-orb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--gradient-primary);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  transition: transform var(--transition-fast), box-shadow var(--transition-base);
+  flex-shrink: 0;
+}
+
+.aria-orb:hover {
+  box-shadow: var(--shadow-lg), var(--shadow-glow-lg);
+}
+
+.aria-orb.expanded {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.5);
+}
+
+.aria-orb-icon {
+  color: #fff;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+/* ── Orb Rings ── */
+.aria-orb-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+
+.aria-orb-ring.active {
+  border-color: #10B981;
+  animation: orbPulse 2s ease-in-out infinite;
+}
+
+.aria-orb-ring.recording {
+  border-color: #EF4444;
+  animation: orbPulse 1s ease-out infinite;
+}
+
+.aria-orb-ring.speaking {
+  border-color: var(--secondary);
+  animation: orbPulse 1.2s ease-in-out infinite;
+}
+
+.aria-orb-ring.thinking {
+  border-color: var(--primary-light);
+  animation: orbSpin 1.5s linear infinite;
+  border-top-color: transparent;
+  border-right-color: transparent;
+}
+
+@keyframes orbPulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 0; }
+}
+
+@keyframes orbSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Status Label ── */
+.aria-orb-label {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  border: var(--glass-border);
+  backdrop-filter: blur(10px);
+}
+
+/* ── Speech Bubble ── */
+.aria-speech-bubble {
+  max-width: 280px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border-bottom-right-radius: 6px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.aria-speech-bubble p {
+  margin: 0;
+}
+
+/* ── Expanded Panel ── */
+.aria-panel {
+  width: 340px;
+  max-height: 480px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.aria-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.aria-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aria-panel-title strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  display: block;
+}
+
+.aria-panel-status {
+  font-size: 0.7rem;
+  color: #10B981;
+  font-weight: 500;
+  display: block;
+}
+
+.aria-mini-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1rem;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.aria-mini-avatar.speaking { box-shadow: 0 0 12px rgba(0, 194, 255, 0.5); }
+.aria-mini-avatar.recording { box-shadow: 0 0 12px rgba(239, 68, 68, 0.5); }
+.aria-mini-avatar.thinking { box-shadow: 0 0 12px rgba(108, 99, 255, 0.5); }
+.aria-mini-avatar.active { box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+
+.aria-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aria-hf-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: var(--bg-glass-light);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.aria-hf-btn.active {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: #10B981;
+  color: #10B981;
+}
+
+.aria-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-glass-light);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all var(--transition-fast);
+}
+
+.aria-close-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary-light);
+}
+
+/* ── Panel Messages ── */
+.aria-panel-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+  max-height: 300px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+.aria-panel-messages::-webkit-scrollbar { width: 3px; }
+.aria-panel-messages::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
+
+.aria-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 24px 0;
+}
+
+.aria-msg {
+  display: flex;
+  gap: 8px;
+  max-width: 92%;
+}
+
+.aria-msg.user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.aria-msg.ai {
+  align-self: flex-start;
+}
+
+.aria-msg-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.aria-msg.ai .aria-msg-avatar {
+  background: var(--gradient-primary);
+  color: #fff;
+}
+
+.aria-msg.user .aria-msg-avatar {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.aria-msg-text {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.aria-msg.ai .aria-msg-text {
+  background: var(--bg-glass);
+  border: var(--glass-border);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.aria-msg.user .aria-msg-text {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+/* ── Typing dots ── */
+.aria-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+}
+
+.aria-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: ariaBounce 1.4s ease-in-out infinite;
+}
+
+.aria-dot:nth-child(2) { animation-delay: 0.2s; }
+.aria-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes ariaBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+
+/* ── Panel Input ── */
+.aria-panel-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.aria-panel-input input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  background: var(--bg-glass-light);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: var(--font-secondary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.aria-panel-input input::placeholder {
+  color: var(--text-muted);
+}
+
+.aria-panel-input input:focus {
+  border-color: var(--primary);
+}
+
+.aria-panel-input input:disabled {
+  opacity: 0.5;
+}
+
+.aria-mic-btn,
+.aria-send-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.aria-mic-btn {
+  background: var(--bg-glass-light);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.aria-mic-btn:hover { border-color: var(--primary); color: var(--primary-light); }
+.aria-mic-btn.recording { background: rgba(239, 68, 68, 0.15); border-color: #EF4444; color: #EF4444; }
+.aria-mic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.aria-send-btn {
+  background: var(--gradient-primary);
+  color: #fff;
+}
+
+.aria-send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .aria-overlay {
+    bottom: calc(var(--bottom-nav-height) + 12px);
+    right: 16px;
+  }
+
+  .aria-orb {
+    width: 48px;
+    height: 48px;
+  }
+
+  .aria-orb-icon { font-size: 1.3rem; }
+
+  .aria-panel {
+    width: calc(100vw - 32px);
+    max-width: 340px;
+  }
+
+  .aria-speech-bubble {
+    max-width: 240px;
+  }
+}

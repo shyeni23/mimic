@@ -6,6 +6,7 @@ pydantic-settings==2.5.2
 
 # Database (Supabase = Postgres + Storage)
 supabase==2.7.4
+psycopg2-binary==2.9.9
 
 # Computer vision (Module 1)
 mediapipe==0.10.14
@@ -13,21 +14,16 @@ opencv-python-headless==4.10.0.84
 numpy==1.26.4
 Pillow==10.4.0
 
-# Fashion embeddings (Module 1)
-# NOTE: fashion-clip==0.2.1 hard-pins torch==1.11.0 internally, which has no
-# wheels for Python 3.11/3.12 -- installing it in the same command as the
-# torch line below will always fail with a version-resolution conflict.
-# Install everything in THIS file first, then install fashion-clip separately
-# with --no-deps (its actual runtime needs -- torch, transformers, numpy,
-# Pillow -- are already satisfied by the versions below):
-#
-#   pip install -r requirements.txt
-#   pip install --no-deps fashion-clip==0.2.1
-#
-# Do not add fashion-clip back into this file's normal install list.
+# Fashion embeddings (Module 1) -- Marqo/marqo-fashionCLIP via open_clip.
+# Previous stack was patrickjohncyh/fashion-clip through the `fashion-clip`
+# PyPI package, which hard-pinned torch==1.11.0 (no wheels for Python
+# 3.11/3.12) and needed a --no-deps two-step install. open_clip is
+# maintained, torch-modern, and is the library Marqo used to train these
+# weights, so this is a strictly cleaner install path.
 torch==2.3.1
 torchvision==0.18.1
 transformers==4.44.2
+open_clip_torch==2.32.0
 
 # Voice (Module 2)
 faster-whisper==1.0.3
@@ -35,6 +31,34 @@ edge-tts==7.2.8
 
 # Accessory detection (Module 1)
 glasses-detector==1.0.1
+
+# Gender detection (Module 1) -- DeepFace's pretrained gender classifier.
+# NOTE: pulls in tensorflow as a hard dependency (separate from the torch
+# stack above) -- this is the heaviest single dependency in this file, and
+# the model weights are downloaded on first use (needs network access once).
+deepface==0.0.93
+tf-keras==2.17.0
+# tensorflow-intel 2.17.1 (pulled in by tf-keras above) downgrades ml-dtypes to
+# 0.4.x, which breaks mediapipe's already-installed jax dependency (jax>=0.7
+# requires ml-dtypes>=0.5.0) -- verified working together at 0.5.4, so pin it
+# explicitly rather than letting pip's resolver silently regress it again.
+ml-dtypes==0.5.4
+
+# Face-shape classification (Module 1) -- trained classifier, vendored from
+# Diksha-cmd/face-shape-prediction (MIT) -- see
+# app/services/vision/face_shape_ml/predictor.py for full attribution.
+# tensorflow-hub is a REAL inference dependency here (referenced in the saved
+# model's custom_objects), not just a training-time one -- verified against
+# the actual source, not just the upstream repo's own docs (which got this
+# wrong). Installing it silently regresses ml-dtypes again (same issue as
+# above) -- reinstall ml-dtypes==0.5.4 after this if that happens again.
+tensorflow-hub==0.16.1
+# tensorflow-hub still does `from pkg_resources import parse_version`
+# (removed in setuptools>=81) -- pin below that, exactly as the upstream
+# repo's own requirements.txt documents. Verified: setuptools>=81 in this
+# venv reproducibly broke FaceShapePredictor() with
+# "ModuleNotFoundError: No module named 'pkg_resources'".
+setuptools<81
 
 # Agent (Module 2/3 brain) -- LangChain + Groq (migrated off LangGraph, then
 # off Gemini after its free tier proved unreliable for this project: daily

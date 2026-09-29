@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { apiPostJSON, apiPost } from '../utils/api';
+import { apiPostJSON } from '../utils/api';
 import { useAuth } from './AuthContext';
 import { usePersonPresence, PresenceState } from '../hooks/usePersonPresence';
 
@@ -66,33 +66,45 @@ export function SessionProvider({ children }) {
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   const inFlightEventsRef = useRef(new Set());
 
-  const fireAgentEvent = useCallback(async (event, role = 'customer') => {
+  const ttsCallbackRef = useRef(null);
+  const messageCallbackRef = useRef(null);
+  const actionsCallbackRef = useRef(null);
+
+  const registerVoiceCallbacks = useCallback(({ playTTS, addMessage, handleActions }) => {
+    ttsCallbackRef.current = playTTS || null;
+    messageCallbackRef.current = addMessage || null;
+    actionsCallbackRef.current = handleActions || null;
+  }, []);
+
+  const fireAgentEvent = useCallback(async (event, role = 'customer', context = {}) => {
     const sid = sessionIdRef.current;
     if (!sid || inFlightEventsRef.current.has(event)) return;
     inFlightEventsRef.current.add(event);
     try {
-      const data = await apiPostJSON('/api/agent/event', { session_id: sid, event, role });
+      const data = await apiPostJSON('/api/agent/event', { session_id: sid, event, role, context });
       if (data.reply) {
         showToast(data.reply, 'info');
-        try {
-          const res = await apiPost('/api/voice/tts', { text: data.reply });
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audio.onended = () => URL.revokeObjectURL(url);
-          audio.onerror = () => URL.revokeObjectURL(url);
-          audio.play();
-        } catch (ttsErr) {
-          console.error('[agent-event] TTS playback failed:', ttsErr);
+        if (messageCallbackRef.current) {
+          messageCallbackRef.current({ sender: 'ai', text: data.reply });
+        }
+        if (ttsCallbackRef.current) {
+          ttsCallbackRef.current(data.reply);
         }
       }
-      for (const action of data.actions || []) {
-        if (action.type === 'show_recommendations') {
-          setPendingRecommendations(action.payload?.results || []);
-        } else if (action.type === 'show_item') {
-          setHighlightedItemId(action.payload?.item_id || null);
-        } else if (action.type === 'add_to_cart') {
-          addToCart(action.payload?.item_id);
+      if (actionsCallbackRef.current) {
+        actionsCallbackRef.current(data.actions);
+      } else {
+        for (const action of data.actions || []) {
+          if (action.type === 'show_recommendations') {
+            setPendingRecommendations({
+              results: action.payload?.results || [],
+              sections: action.payload?.sections || null,
+            });
+          } else if (action.type === 'show_item') {
+            setHighlightedItemId(action.payload?.item_id || null);
+          } else if (action.type === 'add_to_cart') {
+            addToCart(action.payload?.item_id);
+          }
         }
       }
     } catch (err) {
@@ -182,7 +194,7 @@ export function SessionProvider({ children }) {
         cartItems, addToCart,
         pendingOutfitActions, queueOutfitActions, consumeOutfitActions,
         toasts, showToast, dismissToast,
-        fireAgentEvent,
+        fireAgentEvent, registerVoiceCallbacks,
         presenceState, presenceCameraError,
         conversationGreeting,
       }}

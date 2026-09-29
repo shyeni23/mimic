@@ -10,7 +10,7 @@ import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import ProgressCircle from '../components/Common/ProgressCircle';
 import { useSession } from '../context/SessionContext';
-import { mapBodyShape, mapFaceShape, mapSkinDepth, mapUndertone } from '../utils/mapBackendValues';
+import { mapBodyShape, mapFaceShape, mapSkinDepth, mapUndertone, mapGender } from '../utils/mapBackendValues';
 import './AnalysisResults.css';
 
 const stagger = {
@@ -61,6 +61,7 @@ export default function AnalysisResults() {
   const depth = scanData?.skin_tone_depth || 'unknown';
   const undertone = scanData?.skin_tone_undertone || 'unknown';
   const sizeEstimate = scanData?.size_estimate || '—';
+  const gender = scanData?.gender || 'unknown';
   const bodyConfidence = scanData ? Math.round(scanData.body_shape_confidence * 100) : 0;
   const faceConfidence = scanData ? Math.round(scanData.face_shape_confidence * 100) : 0;
   const overallAccuracy = scanData ? Math.round(((scanData.body_shape_confidence + scanData.face_shape_confidence) / 2) * 100) : 0;
@@ -82,6 +83,7 @@ export default function AnalysisResults() {
   const measurements = [
     { label: 'Body Shape', value: mapBodyShape(bodyShape) },
     { label: 'Face Shape', value: mapFaceShape(faceShape) },
+    { label: 'Gender', value: mapGender(gender) },
     { label: 'Skin Depth', value: mapSkinDepth(depth) },
     { label: 'Undertone', value: mapUndertone(undertone) },
     { label: 'Size Estimate', value: sizeEstimate },

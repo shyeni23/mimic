@@ -168,11 +168,17 @@
   font-family: var(--font-primary);
 }
 
-@media (max-width: 768px) {
+/* Must match Sidebar.css's own collapse breakpoint (max-width: 1024px) --
+   otherwise there's a width range where the sidebar is correctly hidden as
+   a drawer but this button (the only way to open it) is still hidden too,
+   leaving no navigation at all. Confirmed live in the 769-1024px gap. */
+@media (max-width: 1024px) {
   .menu-toggle {
     display: flex;
   }
+}
 
+@media (max-width: 768px) {
   .navbar-search {
     display: none;
   }

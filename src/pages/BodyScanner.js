@@ -12,7 +12,7 @@ import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import { useSession } from '../context/SessionContext';
 import { apiPost } from '../utils/api';
-import { mapBodyShape, mapFaceShape, mapSkinDepth, mapUndertone } from '../utils/mapBackendValues';
+import { mapBodyShape, mapFaceShape, mapSkinDepth, mapUndertone, mapGender } from '../utils/mapBackendValues';
 import './BodyScanner.css';
 
 const detectionStages = [
@@ -28,6 +28,7 @@ function buildAnalysisFeatures(scan) {
   return [
     { label: 'Body Shape', value: mapBodyShape(scan.body_shape), confidence: Math.round(scan.body_shape_confidence * 100) },
     { label: 'Face Shape', value: mapFaceShape(scan.face_shape), confidence: Math.round(scan.face_shape_confidence * 100) },
+    { label: 'Gender', value: mapGender(scan.gender), confidence: Math.round((scan.gender_confidence || 0) * 100) },
     { label: 'Skin Tone', value: scan.skin_tone_hex || '—', confidence: 60 },
     { label: 'Depth', value: mapSkinDepth(scan.skin_tone_depth), confidence: 60 },
     { label: 'Undertone', value: mapUndertone(scan.skin_tone_undertone), confidence: 60 },
@@ -160,6 +161,22 @@ export default function BodyScanner() {
       fireAgentEvent('scan_complete');
     }
   }, [scanState, fireAgentEvent]);
+
+  // Take the customer straight to recommendations once the scan completes,
+  // rather than leaving that to Aria's own judgment call on the
+  // scan_complete event above (her prompt explicitly allows her to just ask
+  // a follow-up question INSTEAD of showing recommendations -- a reasonable
+  // choice for a real conversation, but it means "scan finished" didn't
+  // reliably lead to "see recommendations" the way a customer would expect).
+  // Recommendations.js already auto-fetches as soon as it has both a
+  // session and scanData (both true here), so this is enough on its own --
+  // no separate API call needed. Short delay so the "Scan Complete" badge
+  // is actually visible before the page changes.
+  useEffect(() => {
+    if (scanState !== 'complete') return;
+    const timer = setTimeout(() => navigate('/recommendations'), 1500);
+    return () => clearTimeout(timer);
+  }, [scanState, navigate]);
 
   useEffect(() => {
     if (scanState !== 'scanning') return;
@@ -461,6 +478,21 @@ export default function BodyScanner() {
               </div>
             )}
           </GlassCard>
+
+          {scanState === 'error' && (
+            <motion.div
+              className="scanner-cta"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <AnimatedButton onClick={startScan} icon={<RiRestartLine />} disabled={!cameraReady || !sessionId}>
+                Try Again
+              </AnimatedButton>
+              <p className="scanner-hint" style={{ color: 'var(--error, #ef4444)' }}>
+                {scanError}
+              </p>
+            </motion.div>
+          )}
 
           {scanState === 'idle' && (
             <motion.div

@@ -11,11 +11,53 @@ import {
   RiCloseLine,
   RiAddLine,
   RiTShirtLine,
+  RiLoader4Line,
+  RiErrorWarningLine,
+  RiMagicLine,
 } from 'react-icons/ri';
 import GlassCard from '../components/Common/GlassCard';
 import { useSession } from '../context/SessionContext';
 import AnimatedButton from '../components/Common/AnimatedButton';
+import { apiGetJSON } from '../utils/api';
 import './OutfitBuilder.css';
+
+// Maps the backend's inventory categories (top/bottom/dress/footwear/bag/
+// jewelry/watch/accessory -- see backend/app/db/schema.sql) onto this page's
+// existing mannequin slot ids. "dress" has no dedicated slot here, so it's
+// shown in the "top" slot -- it's the outfit's centerpiece either way.
+// jewelry and accessory both land on "accessories"; applyAiOutfit() below
+// never overwrites an already-filled slot, and the backend returns jewelry
+// before accessory (see outfit_recommendation.py's OUTFIT_SLOTS), so jewelry
+// wins when a recommendation includes both.
+const BACKEND_CATEGORY_TO_SLOT = {
+  top: 'top',
+  bottom: 'bottom',
+  dress: 'top',
+  footwear: 'shoes',
+  bag: 'bag',
+  watch: 'watch',
+  jewelry: 'accessories',
+  accessory: 'accessories',
+};
+
+const AI_ITEM_EMOJI = {
+  top: '👕', bottom: '👖', dress: '👗', footwear: '👟',
+  bag: '👜', watch: '⌚', jewelry: '💎', accessory: '🕶️',
+};
+
+function toBuilderItem(row, category) {
+  return {
+    id: row.id,
+    name: row.name,
+    brand: row.color ? row.color[0].toUpperCase() + row.color.slice(1) : '',
+    emoji: AI_ITEM_EMOJI[category] || '✨',
+    color: row.color || '#6C63FF',
+    image_url: row.image_url || null,
+    explanation: row.explanation,
+    score: row.score,
+    aiPicked: true,
+  };
+}
 
 const CATEGORIES = [
   { id: 'top', label: 'Top', icon: <RiTShirtLine /> },
@@ -79,12 +121,62 @@ const ITEMS_DATA = {
 
 const MANNEQUIN_SLOTS = ['top', 'bottom', 'shoes', 'bag', 'watch', 'accessories'];
 
+const SLOT_TO_INV_CATEGORY = {
+  top: 'top', bottom: 'bottom', shoes: 'footwear',
+  bag: 'bag', watch: 'watch', accessories: 'accessory',
+};
+
+const SLOT_EMOJI = {
+  top: '👕', bottom: '👖', shoes: '👟',
+  bag: '👜', watch: '⌚', accessories: '🕶️',
+};
+
 export default function OutfitBuilder() {
-  const { consumeOutfitActions } = useSession();
+  const { sessionId, scanData, consumeOutfitActions } = useSession();
   const [selectedCategory, setSelectedCategory] = useState('top');
   const [selectedItems, setSelectedItems] = useState({});
+  const [paletteItems, setPaletteItems] = useState(ITEMS_DATA);
   const [outfitName, setOutfitName] = useState('');
   const [saveAnimation, setSaveAnimation] = useState(false);
+
+  // Module 3: the real AI-generated complete outfit from
+  // GET /api/outfit-recommendation/{session_id} (backend/app/services/fashion/
+  // outfit_recommendation.py) -- overallScore/error track that call
+  // specifically, separate from the manual picker above.
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+  const [aiOverallScore, setAiOverallScore] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPalette() {
+      try {
+        const data = await apiGetJSON('/api/inventory/browse?limit=200');
+        if (cancelled || !data.items?.length) return;
+        const grouped = {};
+        for (const slot of MANNEQUIN_SLOTS) {
+          const invCat = SLOT_TO_INV_CATEGORY[slot];
+          const items = data.items
+            .filter(i => i.category === invCat)
+            .slice(0, 6)
+            .map(i => ({
+              id: String(i.id),
+              name: i.name,
+              brand: i.color ? i.color[0].toUpperCase() + i.color.slice(1) : '',
+              emoji: SLOT_EMOJI[slot] || '✨',
+              color: '#6C63FF',
+              image_url: i.image_url || null,
+            }));
+          grouped[slot] = items.length ? items : ITEMS_DATA[slot];
+        }
+        setPaletteItems(grouped);
+      } catch {
+        // keep ITEMS_DATA fallback
+      }
+    }
+    loadPalette();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleAddItem = useCallback((category, item) => {
     setSelectedItems((prev) => ({
@@ -106,6 +198,43 @@ export default function OutfitBuilder() {
     setTimeout(() => setSaveAnimation(false), 1500);
   }, []);
 
+  const fetchAiOutfit = useCallback(async () => {
+    if (!sessionId) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const data = await apiGetJSON(`/api/outfit-recommendation/${sessionId}`);
+      const filled = {};
+      const primarySlot = BACKEND_CATEGORY_TO_SLOT[data.primary_item.category] || 'top';
+      filled[primarySlot] = toBuilderItem(
+        { ...data.primary_item, explanation: 'Your AI-picked centerpiece for this look' },
+        data.primary_item.category,
+      );
+      for (const outfitSlot of data.slots || []) {
+        const slotId = BACKEND_CATEGORY_TO_SLOT[outfitSlot.slot];
+        if (!slotId || filled[slotId]) continue; // never overwrite an already-filled slot
+        filled[slotId] = toBuilderItem(
+          { ...outfitSlot.item, explanation: outfitSlot.explanation, score: outfitSlot.score },
+          outfitSlot.slot,
+        );
+      }
+      setSelectedItems(filled);
+      setAiOverallScore(data.overall_score);
+    } catch (err) {
+      setAiError(err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [sessionId]);
+
+  // Auto-load the AI outfit as soon as a fresh scan is available -- mirrors
+  // Recommendations.js's pattern for Module 1.
+  useEffect(() => {
+    if (sessionId && scanData) {
+      fetchAiOutfit();
+    }
+  }, [sessionId, scanData, fetchAiOutfit]);
+
   useEffect(() => {
     const actions = consumeOutfitActions();
     for (const action of actions) {
@@ -116,7 +245,7 @@ export default function OutfitBuilder() {
         case 'set_outfit_item': {
           const cat = action.payload?.category;
           const desc = (action.payload?.item_description || '').toLowerCase();
-          const item = ITEMS_DATA[cat]?.find((i) =>
+          const item = paletteItems[cat]?.find((i) =>
             i.name.toLowerCase().includes(desc)
           );
           if (item) handleAddItem(cat, item);
@@ -135,7 +264,7 @@ export default function OutfitBuilder() {
           break;
       }
     }
-  }, [consumeOutfitActions, handleAddItem, handleRemoveItem, handleSaveOutfit]);
+  }, [consumeOutfitActions, handleAddItem, handleRemoveItem, handleSaveOutfit, paletteItems]);
 
   const totalSlots = MANNEQUIN_SLOTS.length;
   const filledSlots = Object.keys(selectedItems).length;
@@ -162,9 +291,33 @@ export default function OutfitBuilder() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          Mix and match pieces to create your perfect look
+          {!scanData
+            ? 'Run a body scan first to get an AI-recommended outfit'
+            : 'Mix and match pieces, or let Aria build the whole look for you'}
         </motion.p>
       </div>
+
+      {aiLoading && (
+        <motion.div
+          style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <RiLoader4Line style={{ fontSize: '1.5rem', animation: 'spin 1s linear infinite' }} />
+          <p style={{ marginTop: '0.5rem' }}>Building your AI-recommended outfit...</p>
+        </motion.div>
+      )}
+
+      {aiError && (
+        <motion.div
+          style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--error, #ef4444)' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <RiErrorWarningLine style={{ fontSize: '1.5rem' }} />
+          <p style={{ marginTop: '0.5rem' }}>Couldn't load an AI outfit: {aiError}</p>
+        </motion.div>
+      )}
 
       <div className="outfit-builder-content">
         {/* Left Panel - Category & Items */}
@@ -196,7 +349,7 @@ export default function OutfitBuilder() {
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.3 }}
               >
-                {ITEMS_DATA[selectedCategory].map((item, index) => {
+                {(paletteItems[selectedCategory] || []).map((item, index) => {
                   const isSelected = selectedItems[selectedCategory]?.id === item.id;
                   return (
                     <motion.div
@@ -213,7 +366,11 @@ export default function OutfitBuilder() {
                         className="item-emoji"
                         style={{ '--item-color': item.color }}
                       >
-                        {item.emoji}
+                        {item.image_url ? (
+                          <img src={item.image_url} alt={item.name} className="item-emoji-img" />
+                        ) : (
+                          item.emoji
+                        )}
                       </div>
                       <div className="item-info">
                         <span className="item-name">{item.name}</span>
@@ -261,10 +418,19 @@ export default function OutfitBuilder() {
                           animate={{ opacity: 1, scale: 1, rotateY: 0 }}
                           exit={{ opacity: 0, scale: 0.5, rotateY: -90 }}
                           transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                          title={item.explanation || undefined}
                         >
-                          <span className="slot-emoji">{item.emoji}</span>
+                          <span className="slot-emoji">
+                            {item.image_url ? (
+                              <img src={item.image_url} alt={item.name} className="slot-emoji-img" />
+                            ) : (
+                              item.emoji
+                            )}
+                          </span>
                           <div className="slot-details">
-                            <span className="slot-name">{item.name}</span>
+                            <span className="slot-name">
+                              {item.aiPicked && <RiSparklingLine title="AI pick" />} {item.name}
+                            </span>
                             <span className="slot-brand">{item.brand}</span>
                           </div>
                           <motion.button
@@ -325,7 +491,23 @@ export default function OutfitBuilder() {
               <span className="stat-label">Completion</span>
               <span className="stat-value">{completionPercent}%</span>
             </div>
+            {aiOverallScore !== null && (
+              <div className="stat-row">
+                <span className="stat-label">AI Match Score</span>
+                <span className="stat-value">{Math.round(aiOverallScore * 100)}%</span>
+              </div>
+            )}
           </div>
+
+          <AnimatedButton
+            variant="secondary"
+            fullWidth
+            icon={<RiMagicLine />}
+            onClick={fetchAiOutfit}
+            disabled={!sessionId || aiLoading}
+          >
+            {aiLoading ? 'Building...' : 'Regenerate AI Outfit'}
+          </AnimatedButton>
 
           <div className="completion-bar-container">
             <motion.div

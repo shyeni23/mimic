@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SessionProvider } from './context/SessionContext';
+import { VoiceAgentProvider } from './context/VoiceAgentContext';
 import MainLayout from './layouts/MainLayout';
 import SplashScreen from './components/Loading/SplashScreen';
-import PresenceGate from './components/PresenceGate';
 import PresenceDebugBadge from './components/PresenceDebugBadge';
+import AriaOverlay from './components/AriaOverlay/AriaOverlay';
 import AdminLogin from './pages/AdminLogin';
 import Dashboard from './pages/Dashboard';
 import BodyScanner from './pages/BodyScanner';
@@ -20,6 +20,7 @@ import Personalization from './pages/Personalization';
 import Shopping from './pages/Shopping';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import StaffRequests from './pages/StaffRequests';
 import './styles/global.css';
 
 function AppRoutes() {
@@ -47,6 +48,7 @@ function AppRoutes() {
         <Route path="/shopping" element={<Shopping />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/staff-requests" element={<StaffRequests />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
@@ -69,11 +71,11 @@ function App() {
             {showSplash ? (
               <SplashScreen onComplete={() => setShowSplash(false)} />
             ) : (
-              <>
-                <PresenceGate />
+              <VoiceAgentProvider>
                 <PresenceDebugBadge />
+                <AriaOverlay />
                 <AppRoutes />
-              </>
+              </VoiceAgentProvider>
             )}
           </Router>
         </SessionProvider>

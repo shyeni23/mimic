@@ -27,6 +27,10 @@ ActionType = Literal[
     "show_item",
     "start_tryon",            # Module 5 hook, no-op until try-on exists
 
+    # Human-in-the-loop escalation -- real: persists a staff_requests row
+    # (see app/db/supabase_client.py::create_staff_request) for a human to act on.
+    "escalate_to_staff",
+
     # OutfitBuilder.js -- works today against ITEMS_DATA (frontend-local, not real inventory)
     "select_outfit_category", # switch category tab: top/bottom/shoes/bag/watch/accessories
     "set_outfit_item",        # select an item within the current category by name match

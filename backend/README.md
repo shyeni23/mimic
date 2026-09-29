@@ -29,6 +29,24 @@ cp .env.example .env
 # edit .env: fill in SUPABASE_URL and SUPABASE_KEY from your Supabase project settings
 ```
 
+### Face-shape model weights (one-time, manual)
+
+The trained face-shape classifier (`app/services/vision/face_shape_ml/`, vendored from
+Diksha-cmd/face-shape-prediction, MIT) needs two files that aren't pip-installable --
+they're distributed via Git LFS on the upstream repo, not a plain download URL:
+
+```bash
+git lfs install   # if you don't already have Git LFS
+git clone https://github.com/Diksha-cmd/face-shape-prediction.git /tmp/faceshape-src
+mkdir -p data/models/face_shape
+cp /tmp/faceshape-src/models/faceshape_facenet_v3.keras data/models/face_shape/
+cp /tmp/faceshape-src/models/face_landmarker.task data/models/face_shape/
+```
+
+Without these two files present, face-shape detection automatically falls back to the
+geometric heuristic (see `face_shape.py`) -- the scan endpoint still works, just less
+accurately, so this step is optional but recommended.
+
 ## 3. Database setup
 
 In the Supabase SQL editor, run `app/db/schema.sql` once. It creates all tables

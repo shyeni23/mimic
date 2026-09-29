@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RiSearchLine,
@@ -12,25 +12,29 @@ import {
   RiCloseLine,
   RiShoppingBag3Line,
   RiArrowRightLine,
-  RiFireLine,
   RiPriceTag3Line,
-  RiStarFill,
   RiTruckLine,
   RiShieldCheckLine,
   RiFilterLine,
-  RiSparkling2Line,
+  RiLoader4Line,
+  RiCalendarEventLine,
 } from 'react-icons/ri';
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import FilterChips from '../components/Common/FilterChips';
+import { apiGetJSON } from '../utils/api';
+import { useSession } from '../context/SessionContext';
+import { logEventNow, useImpressionLogger } from '../hooks/useEventLogger';
 import './Shopping.css';
+
+const EMOJI_BY_CATEGORY = {
+  top: '👕', bottom: '👖', dress: '👗', footwear: '👟',
+  bag: '👜', jewelry: '💍', watch: '⌚', accessory: '🧣',
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
 
 const itemVariants = {
@@ -44,180 +48,120 @@ const cardVariants = {
   exit: { opacity: 0, scale: 0.9, transition: { duration: 0.2 } },
 };
 
-const filterOptions = ['All', 'New Arrivals', 'Trending', 'Sale'];
+/** Extracted so useImpressionLogger can attach its own IntersectionObserver
+ * per card -- hooks can't be called inside a .map() body in the parent. */
+const ProductCard = ({ product, sessionId, wishlisted, onWishlist, onAddToCart, onReserve, formatPrice, emoji }) => {
+  const cardRef = useRef(null);
+  useImpressionLogger(sessionId, product.id, cardRef);
+  return (
+    <motion.div
+      ref={cardRef}
+      className="product-card"
+      variants={cardVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      layout
+      whileHover={{ y: -4 }}
+    >
+      <div className="product-image">
+        {product.image_url ? (
+          <img src={product.image_url} alt={product.name} className="product-img" />
+        ) : (
+          <div className="image-placeholder">
+            <span className="placeholder-emoji">{emoji}</span>
+          </div>
+        )}
+        {product.stock <= 3 && product.stock > 0 && (
+          <span className="product-badge badge-sale">
+            <RiPriceTag3Line /> Only {product.stock} left
+          </span>
+        )}
+        <button
+          className={`wishlist-btn ${wishlisted ? 'wishlisted' : ''}`}
+          onClick={() => onWishlist(product.id)}
+          aria-label="Toggle wishlist"
+        >
+          {wishlisted ? <RiHeartFill /> : <RiHeartLine />}
+        </button>
+      </div>
 
-const products = [
-  {
-    id: 1,
-    name: 'Cashmere Blend Overcoat',
-    brand: 'Maison Laurent',
-    price: 489.00,
-    originalPrice: null,
-    rating: 4.8,
-    reviews: 124,
-    category: 'New Arrivals',
-    badge: 'New',
-    image: null,
-  },
-  {
-    id: 2,
-    name: 'Italian Leather Chelsea Boots',
-    brand: 'Artisan & Co.',
-    price: 325.00,
-    originalPrice: null,
-    rating: 4.9,
-    reviews: 89,
-    category: 'Trending',
-    badge: 'Trending',
-    image: null,
-  },
-  {
-    id: 3,
-    name: 'Silk Blend Evening Dress',
-    brand: 'Ethereal',
-    price: 279.00,
-    originalPrice: 399.00,
-    rating: 4.7,
-    reviews: 56,
-    category: 'Sale',
-    badge: 'Sale',
-    image: null,
-  },
-  {
-    id: 4,
-    name: 'Merino Wool Turtleneck',
-    brand: 'Nordic Essentials',
-    price: 165.00,
-    originalPrice: null,
-    rating: 4.6,
-    reviews: 203,
-    category: 'Trending',
-    badge: 'Trending',
-    image: null,
-  },
-  {
-    id: 5,
-    name: 'Tailored Slim Fit Blazer',
-    brand: 'Savile & Row',
-    price: 395.00,
-    originalPrice: 550.00,
-    rating: 4.8,
-    reviews: 167,
-    category: 'Sale',
-    badge: 'Sale',
-    image: null,
-  },
-  {
-    id: 6,
-    name: 'Premium Denim Jeans',
-    brand: 'Indigo Theory',
-    price: 189.00,
-    originalPrice: null,
-    rating: 4.5,
-    reviews: 312,
-    category: 'New Arrivals',
-    badge: 'New',
-    image: null,
-  },
-  {
-    id: 7,
-    name: 'Linen Summer Shirt',
-    brand: 'Coastal Studio',
-    price: 125.00,
-    originalPrice: null,
-    rating: 4.4,
-    reviews: 98,
-    category: 'Trending',
-    badge: null,
-    image: null,
-  },
-  {
-    id: 8,
-    name: 'Handcrafted Leather Belt',
-    brand: 'Heritage Craft',
-    price: 89.00,
-    originalPrice: 120.00,
-    rating: 4.7,
-    reviews: 445,
-    category: 'Sale',
-    badge: 'Sale',
-    image: null,
-  },
-  {
-    id: 9,
-    name: 'Velvet Lounge Robe',
-    brand: 'Luxe Home',
-    price: 210.00,
-    originalPrice: null,
-    rating: 4.9,
-    reviews: 76,
-    category: 'New Arrivals',
-    badge: 'New',
-    image: null,
-  },
-  {
-    id: 10,
-    name: 'Structured Canvas Tote',
-    brand: 'Modern Carry',
-    price: 145.00,
-    originalPrice: null,
-    rating: 4.3,
-    reviews: 189,
-    category: 'Trending',
-    badge: null,
-    image: null,
-  },
-  {
-    id: 11,
-    name: 'Alpaca Wool Scarf',
-    brand: 'Andean Luxe',
-    price: 95.00,
-    originalPrice: 140.00,
-    rating: 4.6,
-    reviews: 234,
-    category: 'Sale',
-    badge: 'Sale',
-    image: null,
-  },
-  {
-    id: 12,
-    name: 'Suede Ankle Boots',
-    brand: 'Terrain Walk',
-    price: 275.00,
-    originalPrice: null,
-    rating: 4.8,
-    reviews: 112,
-    category: 'New Arrivals',
-    badge: 'New',
-    image: null,
-  },
-];
+      <div className="product-info">
+        <span className="product-brand">{product.category}</span>
+        <h3 className="product-name">{product.name}</h3>
+        {product.color && <span className="product-color-tag">{product.color}</span>}
+        <div className="product-price">
+          <span className="current-price">{formatPrice(product.price)}</span>
+          {product.stock > 0 && <span className="stock-info">In stock</span>}
+        </div>
+      </div>
+
+      <div className="product-actions">
+        <button className="action-btn reserve-btn" onClick={() => onReserve(product)}>
+          <RiStoreLine /> Reserve
+        </button>
+        <button className="action-btn cart-btn" onClick={() => onAddToCart(product)}>
+          <RiShoppingCartLine /> Add to Cart
+        </button>
+      </div>
+    </motion.div>
+  );
+};
 
 const Shopping = () => {
+  const { sessionId, fireAgentEvent } = useSession();
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [occasions, setOccasions] = useState([]);
+  const [activeOccasion, setActiveOccasion] = useState('All');
   const [cart, setCart] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
 
-  const filteredProducts = useMemo(() => {
-    let filtered = products;
-
-    if (activeFilter !== 'All') {
-      filtered = filtered.filter((p) => p.category === activeFilter);
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const catParam = activeFilter !== 'All' ? `&category=${encodeURIComponent(activeFilter)}` : '';
+      const occasionParam = activeOccasion !== 'All' ? `&occasion=${encodeURIComponent(activeOccasion)}` : '';
+      const searchParam = searchQuery.trim() ? `&search=${encodeURIComponent(searchQuery)}` : '';
+      const data = await apiGetJSON(`/api/inventory/browse?limit=50${catParam}${occasionParam}${searchParam}`);
+      setProducts(data.items || []);
+    } catch (err) {
+      console.error('Failed to load inventory:', err);
+    } finally {
+      setLoading(false);
     }
+  }, [activeFilter, activeOccasion, searchQuery]);
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.brand.toLowerCase().includes(query)
-      );
-    }
+  useEffect(() => {
+    const timer = setTimeout(loadProducts, searchQuery ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [loadProducts, searchQuery]);
 
-    return filtered;
-  }, [activeFilter, searchQuery]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGetJSON('/api/inventory/categories');
+        setCategories(['All', ...(data.categories || [])]);
+      } catch {
+        setCategories(['All']);
+      }
+    })();
+    (async () => {
+      try {
+        const data = await apiGetJSON('/api/inventory/occasions');
+        setOccasions(['All', ...(data.occasions || [])]);
+      } catch {
+        setOccasions(['All']);
+      }
+    })();
+  }, []);
+
+  const filterOptions = useMemo(() => categories, [categories]);
+  const occasionOptions = useMemo(() => occasions, [occasions]);
 
   const addToCart = (product) => {
     setCart((prev) => {
@@ -230,6 +174,12 @@ const Shopping = () => {
       return [...prev, { ...product, quantity: 1 }];
     });
     setCartOpen(true);
+    logEventNow(sessionId, product.id, 'add_to_cart', { source: 'shopping', category: product.category });
+    // Proactive engagement: let Aria notice and suggest a matching item.
+    // Only on first-time adds (not quantity bumps) so we don't spam.
+    if (fireAgentEvent && !cart.find((item) => item.id === product.id)) {
+      fireAgentEvent('cart_item_added');
+    }
   };
 
   const removeFromCart = (productId) => {
@@ -249,40 +199,21 @@ const Shopping = () => {
   };
 
   const toggleWishlist = (productId) => {
+    const wasWishlisted = wishlist.includes(productId);
     setWishlist((prev) =>
-      prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId]
+      wasWishlisted ? prev.filter((id) => id !== productId) : [...prev, productId]
     );
+    logEventNow(sessionId, productId, wasWishlisted ? 'dismiss' : 'click', {
+      source: 'shopping', action: 'wishlist_toggle',
+    });
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  const getBadgeClass = (badge) => {
-    switch (badge) {
-      case 'New':
-        return 'badge-new';
-      case 'Trending':
-        return 'badge-trending';
-      case 'Sale':
-        return 'badge-sale';
-      default:
-        return '';
-    }
-  };
-
-  const getBadgeIcon = (badge) => {
-    switch (badge) {
-      case 'New':
-        return <RiSparkling2Line />;
-      case 'Trending':
-        return <RiFireLine />;
-      case 'Sale':
-        return <RiPriceTag3Line />;
-      default:
-        return null;
-    }
+  const formatPrice = (price) => {
+    if (!price) return 'Price N/A';
+    return price >= 1000 ? `₹${price.toLocaleString()}` : `₹${price}`;
   };
 
   return (
@@ -292,7 +223,6 @@ const Shopping = () => {
       initial="hidden"
       animate="visible"
     >
-      {/* Header */}
       <motion.div className="shopping-header" variants={itemVariants}>
         <div className="header-content">
           <h1 className="page-title">
@@ -300,7 +230,7 @@ const Shopping = () => {
             Shopping
           </h1>
           <p className="page-subtitle">
-            Curated premium fashion, handpicked for your style
+            Browse our real in-store inventory
           </p>
         </div>
         <motion.button
@@ -323,22 +253,18 @@ const Shopping = () => {
         </motion.button>
       </motion.div>
 
-      {/* Search & Filters */}
       <motion.div className="shopping-controls" variants={itemVariants}>
         <div className="search-bar">
           <RiSearchLine className="search-icon" />
           <input
             type="text"
-            placeholder="Search products, brands..."
+            placeholder="Search products, colors..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="search-input"
           />
           {searchQuery && (
-            <button
-              className="search-clear"
-              onClick={() => setSearchQuery('')}
-            >
+            <button className="search-clear" onClick={() => setSearchQuery('')}>
               <RiCloseLine />
             </button>
           )}
@@ -351,108 +277,45 @@ const Shopping = () => {
             onSelect={setActiveFilter}
           />
         </div>
+        {occasionOptions.length > 1 && (
+          <div className="filter-row">
+            <RiCalendarEventLine className="filter-icon" />
+            <FilterChips
+              filters={occasionOptions}
+              activeFilter={activeOccasion}
+              onSelect={setActiveOccasion}
+            />
+          </div>
+        )}
       </motion.div>
 
-      {/* Main Content */}
       <div className={`shopping-content ${cartOpen ? 'cart-visible' : ''}`}>
-        {/* Product Grid */}
         <div className="product-grid">
-          <AnimatePresence mode="popLayout">
-            {filteredProducts.map((product) => (
-              <motion.div
-                key={product.id}
-                className="product-card"
-                variants={cardVariants}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                layout
-                whileHover={{ y: -4 }}
-              >
-                {/* Product Image Placeholder */}
-                <div className="product-image">
-                  <div className="image-placeholder">
-                    <RiShoppingBag3Line className="placeholder-icon" />
-                  </div>
-                  {product.badge && (
-                    <span className={`product-badge ${getBadgeClass(product.badge)}`}>
-                      {getBadgeIcon(product.badge)}
-                      {product.badge}
-                    </span>
-                  )}
-                  <button
-                    className={`wishlist-btn ${
-                      wishlist.includes(product.id) ? 'wishlisted' : ''
-                    }`}
-                    onClick={() => toggleWishlist(product.id)}
-                    aria-label="Toggle wishlist"
-                  >
-                    {wishlist.includes(product.id) ? (
-                      <RiHeartFill />
-                    ) : (
-                      <RiHeartLine />
-                    )}
-                  </button>
-                </div>
+          {loading ? (
+            <motion.div className="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <RiLoader4Line className="no-results-icon spinning" />
+              <h3>Loading inventory...</h3>
+            </motion.div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {products.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  sessionId={sessionId}
+                  wishlisted={wishlist.includes(product.id)}
+                  onWishlist={toggleWishlist}
+                  onAddToCart={addToCart}
+                  onReserve={(p) => logEventNow(sessionId, p.id, 'click', { source: 'shopping', action: 'reserve' })}
+                  formatPrice={formatPrice}
+                  emoji={EMOJI_BY_CATEGORY[product.category] || '👔'}
+                />
+              ))}
+            </AnimatePresence>
+          )}
 
-                {/* Product Info */}
-                <div className="product-info">
-                  <span className="product-brand">{product.brand}</span>
-                  <h3 className="product-name">{product.name}</h3>
-                  <div className="product-rating">
-                    <RiStarFill className="star-icon" />
-                    <span className="rating-value">{product.rating}</span>
-                    <span className="review-count">({product.reviews})</span>
-                  </div>
-                  <div className="product-price">
-                    <span className="current-price">
-                      ${product.price.toFixed(2)}
-                    </span>
-                    {product.originalPrice && (
-                      <span className="original-price">
-                        ${product.originalPrice.toFixed(2)}
-                      </span>
-                    )}
-                    {product.originalPrice && (
-                      <span className="discount-badge">
-                        {Math.round(
-                          ((product.originalPrice - product.price) /
-                            product.originalPrice) *
-                            100
-                        )}
-                        % OFF
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Product Actions */}
-                <div className="product-actions">
-                  <button
-                    className="action-btn reserve-btn"
-                    onClick={() => {}}
-                  >
-                    <RiStoreLine />
-                    Reserve in Store
-                  </button>
-                  <button
-                    className="action-btn cart-btn"
-                    onClick={() => addToCart(product)}
-                  >
-                    <RiShoppingCartLine />
-                    Add to Cart
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-
-          {filteredProducts.length === 0 && (
-            <motion.div
-              className="no-results"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
+          {!loading && products.length === 0 && (
+            <motion.div className="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <RiSearchLine className="no-results-icon" />
               <h3>No products found</h3>
               <p>Try adjusting your search or filters</p>
@@ -460,7 +323,6 @@ const Shopping = () => {
           )}
         </div>
 
-        {/* Cart Sidebar */}
         <AnimatePresence>
           {cartOpen && (
             <motion.div
@@ -472,14 +334,8 @@ const Shopping = () => {
             >
               <GlassCard>
                 <div className="cart-header">
-                  <h2>
-                    <RiShoppingCartLine />
-                    Your Cart
-                  </h2>
-                  <button
-                    className="cart-close"
-                    onClick={() => setCartOpen(false)}
-                  >
+                  <h2><RiShoppingCartLine /> Your Cart</h2>
+                  <button className="cart-close" onClick={() => setCartOpen(false)}>
                     <RiCloseLine />
                   </button>
                 </div>
@@ -505,33 +361,24 @@ const Shopping = () => {
                             layout
                           >
                             <div className="cart-item-image">
-                              <RiShoppingBag3Line />
+                              <span>{EMOJI_BY_CATEGORY[item.category] || '👔'}</span>
                             </div>
                             <div className="cart-item-details">
                               <span className="cart-item-name">{item.name}</span>
-                              <span className="cart-item-brand">{item.brand}</span>
+                              <span className="cart-item-brand">{item.category}</span>
                               <span className="cart-item-price">
-                                ${(item.price * item.quantity).toFixed(2)}
+                                {formatPrice((item.price || 0) * item.quantity)}
                               </span>
                             </div>
                             <div className="cart-item-controls">
-                              <button
-                                className="qty-btn"
-                                onClick={() => updateCartQuantity(item.id, -1)}
-                              >
+                              <button className="qty-btn" onClick={() => updateCartQuantity(item.id, -1)}>
                                 <RiSubtractLine />
                               </button>
                               <span className="qty-value">{item.quantity}</span>
-                              <button
-                                className="qty-btn"
-                                onClick={() => updateCartQuantity(item.id, 1)}
-                              >
+                              <button className="qty-btn" onClick={() => updateCartQuantity(item.id, 1)}>
                                 <RiAddLine />
                               </button>
-                              <button
-                                className="remove-btn"
-                                onClick={() => removeFromCart(item.id)}
-                              >
+                              <button className="remove-btn" onClick={() => removeFromCart(item.id)}>
                                 <RiDeleteBinLine />
                               </button>
                             </div>
@@ -545,30 +392,16 @@ const Shopping = () => {
                         <span>Items</span>
                         <span>{cartItemCount}</span>
                       </div>
-                      <div className="cart-summary-row">
-                        <span>Subtotal</span>
-                        <span>${cartTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="cart-summary-row">
-                        <span>Shipping</span>
-                        <span className="free-shipping">Free</span>
-                      </div>
                       <div className="cart-summary-total">
                         <span>Total</span>
-                        <span>${cartTotal.toFixed(2)}</span>
+                        <span>{formatPrice(cartTotal)}</span>
                       </div>
-
                       <AnimatedButton className="checkout-btn">
                         <RiArrowRightLine /> Checkout
                       </AnimatedButton>
-
                       <div className="cart-trust-badges">
-                        <span>
-                          <RiTruckLine /> Free Returns
-                        </span>
-                        <span>
-                          <RiShieldCheckLine /> Secure Checkout
-                        </span>
+                        <span><RiTruckLine /> Free Returns</span>
+                        <span><RiShieldCheckLine /> Secure Checkout</span>
                       </div>
                     </div>
                   </>

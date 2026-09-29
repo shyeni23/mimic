@@ -14,6 +14,17 @@ socket.setdefaulttimeout(20)
 # competing OpenMP workloads concurrently on the same data.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
+# DeepFace (gender detection, Module 1) needs legacy Keras (tf_keras) under
+# TensorFlow >= 2.16 and sets this itself on import -- but TensorFlow only
+# reads it the FIRST time `tensorflow` is imported, and in the scan pipeline
+# MediaPipe/face_shape_ml import TensorFlow before DeepFace ever loads. The
+# result was DeepFace building its model on Keras 3 and failing every call
+# with "The layer sequential has never been called and thus has no defined
+# input", so every scan silently returned gender='unknown' and the whole
+# men's/women's recommendation filter never activated. Must be set here,
+# before any app module can import TensorFlow.
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+
 if "annoy" not in sys.modules:
     _m = types.ModuleType("annoy")
     _m.__spec__ = importlib.machinery.ModuleSpec("annoy", None)

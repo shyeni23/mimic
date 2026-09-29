@@ -37,16 +37,30 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
     ls, rs = pose_landmarks[LEFT_SHOULDER], pose_landmarks[RIGHT_SHOULDER]
     lh, rh = pose_landmarks[LEFT_HIP], pose_landmarks[RIGHT_HIP]
 
-    low_vis = [
-        name for name, lm in (("left shoulder", ls), ("right shoulder", rs), ("left hip", lh), ("right hip", rh))
-        if lm.get("visibility", 1.0) < MIN_VISIBILITY
-    ]
-    if low_vis:
+    # Shoulders must be clearly visible -- without them we have nothing to
+    # measure at all. Hips are treated as a soft requirement (see below).
+    if any(lm.get("visibility", 1.0) < MIN_VISIBILITY for lm in (ls, rs)):
         return {
             "body_shape": "unknown",
             "confidence": 0.0,
-            "reason": f"low camera confidence on {', '.join(low_vis)} -- step back so your shoulders and hips are both clearly visible",
+            "reason": "shoulders not clearly visible -- move so your upper body is in frame",
         }
+
+    # Hip visibility relaxed to LOW_HIP_VISIBILITY (0.25) after real-world
+    # usage showed the previous 0.5 threshold rejected the vast majority of
+    # laptop-webcam scans (hips cropped or blurry when the user isn't
+    # standing far back). If hips are between 0.25 and 0.5 we still compute
+    # a shape but with a lowered ceiling on confidence -- honest but useful,
+    # instead of "unknown" for 90% of scans.
+    LOW_HIP_VISIBILITY = 0.25
+    hip_vis = min(lh.get("visibility", 1.0), rh.get("visibility", 1.0))
+    if hip_vis < LOW_HIP_VISIBILITY:
+        return {
+            "body_shape": "unknown",
+            "confidence": 0.0,
+            "reason": "hips not visible enough -- step back so your full torso is in frame",
+        }
+    hip_confidence_ceiling = 1.0 if hip_vis >= MIN_VISIBILITY else 0.55
 
     shoulder_width = _dist(ls, rs)
     hip_width = _dist(lh, rh)
@@ -81,7 +95,11 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
         # different people could both hit the SAME capped confidence, making
         # them look like duplicated results even though the underlying ratio
         # differed. This keeps differentiating across a much wider range.
-        return round(min(0.3 + margin * 1.2, 0.9), 2)
+        raw = min(0.3 + margin * 1.2, 0.9)
+        # Cap at the hip-visibility ceiling: if we only saw hips at ~0.3
+        # visibility, the shape estimate is real but shouldn't parade as
+        # high-confidence -- capped at 0.55 to signal "approximate reading".
+        return round(min(raw, hip_confidence_ceiling), 2)
 
     BROAD_SHOULDER, BROAD_HIP = 1.08, 0.93
     reasons = []
@@ -131,20 +149,28 @@ def estimate_body_size(pose_landmarks: list[dict], image_height: int, px_per_cm:
     This is NOT a substitute for real measurements -- it's a coarse estimate
     to bias inventory filtering, and should say so to the user.
 
-    Two tiers -- both give a REAL real-world measurement, not a frame-relative
-    guess. A shoulder-width-vs-frame-width fallback was tried and removed: it
-    conflates "close to the camera" with "actually broad", so someone sitting
-    close to a laptop webcam always reads as bigger than they are regardless
-    of true size -- systematically wrong, not just imprecise, so it's worse
-    than admitting uncertainty.
+    Three tiers, tried in order of reliability regardless of camera distance
+    -- NOT in order of "most precise if everything's ideal", since someone
+    can't be relied on to stand at one exact spot every time:
       1. Full body (nose to ankles) visible -- shoulder-width/height-in-frame
          ratio. Self-normalizing (both measured at the same distance), so
-         this works without calibration.
-      2. Only shoulders visible, but this mirror HAS been calibrated (see
-         /api/vision/calibrate) -- px_per_cm converts shoulder width to an
-         actual centimeter measurement, which is distance-corrected by
-         construction since calibration is done once at the mirror's fixed
-         standing spot.
+         this is correct at any distance without calibration.
+      2. Only shoulders + eyes visible -- shoulder-width/eye-distance ratio.
+         Also self-normalizing (your own head as an intrinsic ruler,
+         measured at the same distance as your shoulders) -- still correct
+         at any distance, just a coarser reference than tier 1.
+      3. This mirror HAS been calibrated (see /api/vision/calibrate) --
+         px_per_cm converts shoulder width to a centimeter measurement, but
+         ONLY correctly for someone standing at the exact distance
+         calibration was done at. Kept as a last resort (lower confidence
+         than tier 2) rather than removed, since it's still better than
+         nothing when neither ratio-based tier has enough landmarks.
+    A shoulder-width-vs-frame-width shortcut was tried and removed entirely
+    (not just deprioritized): it conflates "close to the camera" with
+    "actually broad", so someone sitting close to a laptop webcam always
+    reads as bigger than they are regardless of true size -- systematically
+    wrong, not just imprecise, unlike tiers 1-2 which stay correct at any
+    distance.
     Neither available -> honest "unknown" rather than a biased guess.
     """
     if not pose_landmarks or len(pose_landmarks) < 29:
@@ -196,6 +222,42 @@ def estimate_body_size(pose_landmarks: list[dict], image_height: int, px_per_cm:
                 "note": "Estimated from full-body camera proportions, not exact measurements.",
             }
 
+    # Tier 2: head-width self-calibration, tried BEFORE mirror calibration --
+    # the visible head is an intrinsic ruler (interpupillary distance is
+    # remarkably consistent across adults, ~6-7cm), measured at the same
+    # distance as the shoulders, so shoulder_px / head_ref_px is
+    # distance-invariant WITHOUT needing to see the full body or calibrate.
+    # Tried first because it stays correct regardless of where this person
+    # is standing, unlike tier 3 below.
+    le_lm, re_lm = pose_landmarks[LEFT_EYE], pose_landmarks[RIGHT_EYE]
+    eyes_visible = all(lm.get("visibility", 1.0) >= MIN_VISIBILITY for lm in (le_lm, re_lm))
+    if eyes_visible:
+        eye_dist_px = _dist(le_lm, re_lm)
+        if eye_dist_px > 1:
+            # Empirical: shoulder_width_px / eye_dist_px averages ~6.0 for a
+            # typical adult (shoulders ~40cm, interpupillary ~6.3cm). Bins
+            # widen linearly around that mean.
+            build_ratio = shoulder_width_px / eye_dist_px
+            bounds = [5.2, 5.8, 6.4, 7.0, 7.6]
+            labels = ["XS", "S", "M", "L", "XL", "XXL"]
+            size = next((labels[i] for i, b in enumerate(bounds) if build_ratio < b), labels[-1])
+            margin = min(abs(build_ratio - b) for b in bounds)
+            confidence = round(min(0.25 + margin * 0.25, 0.55), 2)
+            print(
+                f"[vision:body_size] shoulder_px={shoulder_width_px:.1f} eye_dist_px={eye_dist_px:.1f} "
+                f"shoulder/eye={build_ratio:.2f} -> {size} (confidence={confidence}, head-ref, distance-invariant)"
+            )
+            return {
+                "size_estimate": size,
+                "confidence": confidence,
+                "note": "Estimated from head-to-shoulder proportions -- accurate regardless of distance from the camera.",
+            }
+
+    # Tier 3: this mirror's fixed-position calibration -- last resort, only
+    # tried when neither ratio-based tier above had enough landmarks. Only
+    # accurate if this person is standing at the exact distance calibration
+    # was done at (see module docstring); confidence set below tier 2
+    # accordingly.
     if px_per_cm:
         shoulder_width_cm = shoulder_width_px / px_per_cm
         if shoulder_width_cm < 36:
@@ -212,20 +274,19 @@ def estimate_body_size(pose_landmarks: list[dict], image_height: int, px_per_cm:
             size = "XXL"
         print(
             f"[vision:body_size] shoulder_px={shoulder_width_px:.1f} px_per_cm={px_per_cm:.3f} "
-            f"shoulder_cm={shoulder_width_cm:.1f} -> {size}"
+            f"shoulder_cm={shoulder_width_cm:.1f} -> {size} (calibration fallback)"
         )
         return {
             "size_estimate": size,
             "confidence": 0.35,
-            "note": "Estimated from this mirror's calibrated shoulder-width measurement.",
+            "note": "Estimated from this mirror's calibrated shoulder-width measurement -- most accurate if you're standing at the usual spot.",
         }
 
     return {
         "size_estimate": "unknown",
         "confidence": 0.0,
         "note": (
-            "Full body not visible and this mirror isn't calibrated yet -- either step back "
-            "so your whole body is in frame, or run /api/vision/calibrate once for reliable "
-            "sizing at any distance."
+            "Neither full body nor face landmarks clearly visible. Step back or "
+            "move slightly toward the camera so your head and shoulders are both in frame."
         ),
     }

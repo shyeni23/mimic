@@ -17,6 +17,8 @@ import {
 } from 'react-icons/ri';
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
+import { useSession } from '../context/SessionContext';
+import { logEventNow } from '../hooks/useEventLogger';
 import './VirtualTryOn.css';
 
 const LIGHTING_MODES = [
@@ -34,6 +36,7 @@ const CURRENT_OUTFIT_ITEMS = [
 ];
 
 export default function VirtualTryOn() {
+  const { sessionId } = useSession();
   const [lightingMode, setLightingMode] = useState('natural');
   const [zoom, setZoom] = useState(1);
   const [capturedPhoto, setCapturedPhoto] = useState(null);
@@ -42,6 +45,14 @@ export default function VirtualTryOn() {
 
   const handleCapture = () => {
     setShowFlash(true);
+    // item_id=null: the try-on session is per-outfit, not per-item; the mock
+    // outfit's local ids aren't real inventory ids yet. Real ids will land in
+    // context.items once the try-on grid is wired to inventory.
+    logEventNow(sessionId, null, 'tryon', {
+      source: 'virtual_tryon',
+      lighting: lightingMode,
+      items: CURRENT_OUTFIT_ITEMS.map((i) => i.name),
+    });
     setTimeout(() => {
       setShowFlash(false);
       setCapturedPhoto({

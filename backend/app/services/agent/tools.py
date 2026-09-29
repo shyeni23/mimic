@@ -16,8 +16,8 @@ import json
 from typing import Optional
 from langchain_core.tools import tool
 
-from app.db.supabase_client import get_latest_scan, get_inventory
-from app.services.fashion.inventory_search import recommend_items
+from app.db.supabase_client import get_latest_scan, get_inventory, create_staff_request
+from app.services.fashion.inventory_search import recommend_items, recommend_complete_look, normalize_category
 from app.services.vision.skin_tone import recommended_palette
 from app.services.agent.actions import queue_action
 from app.services.agent.preferences import record_preference_update
@@ -76,11 +76,18 @@ def get_body_profile(session_id: str) -> str:
                 "naturally and mention you're ready whenever they're in view."
             ),
         })
+    # SESSION-CONTEXT RE-RANKING: report whatever the customer has spoken-
+    # corrected in conversation (undertone/skin_depth), not the stale camera
+    # value -- same override recommend_clothes applies. Otherwise asking
+    # "what's my undertone?" right after correcting it would confusingly
+    # echo back the scan's original (wrong, per the customer) answer.
+    from app.services.user_context import get_user_context
+    fashion_preferences = get_user_context(session_id)["fashion_preferences"]
     return json.dumps({
         "body_shape": scan.get("body_shape"),
         "face_shape": scan.get("face_shape"),
-        "skin_tone_category": scan.get("skin_tone_category"),
-        "skin_tone_undertone": scan.get("skin_tone_undertone"),
+        "skin_tone_category": fashion_preferences.get("skin_depth") or scan.get("skin_tone_category"),
+        "skin_tone_undertone": fashion_preferences.get("undertone") or scan.get("skin_tone_undertone"),
         "body_size_estimate": scan.get("body_size_estimate"),
         "height_cm": scan.get("height_cm"),
         "height_source": scan.get("height_source"),
@@ -90,14 +97,47 @@ def get_body_profile(session_id: str) -> str:
 
 
 @tool
-def search_inventory(category: str = "") -> str:
-    """List available inventory items, optionally filtered by category
-    (top, bottom, dress, footwear, bag, jewelry, watch, accessory)."""
-    items = get_inventory(category=category or None)
+def search_inventory(session_id: str, category: str = "", query: str = "") -> str:
+    """Search available inventory. Provide `category` (top, bottom, dress,
+    footwear, bag, jewelry, watch, accessory) and/or a free-text `query`
+    describing what the customer wants (e.g. "blue oxford shirt for office",
+    "elegant black midi dress"). Uses Marqo-FashionCLIP semantic search
+    when a query is given; falls back to a plain category listing otherwise.
+    The returned rows are ranked by real embedding similarity to `query`,
+    not by keyword matching."""
+    # Capped at 8, not 20 -- this result gets injected into the agent loop's
+    # message history (graph.py) and resent on every subsequent iteration of
+    # the SAME turn, so its size directly multiplies against the Groq
+    # account's tokens-per-minute budget. 8 real items is still plenty for
+    # the model to describe options from.
+    from app.services.fashion.inventory_search import semantic_search
+
+    # Semantic path -- Marqo embeds `query` and pgvector returns the closest
+    # in-stock matches. If no query text was given, synthesize one from the
+    # category so the retriever still runs (and produces relevance-ranked
+    # results) instead of a raw catalog dump.
+    search_query = query or (f"{category} clothing" if category else "clothing")
+    try:
+        items = semantic_search(
+            search_query, category=(category or None), top_k=8,
+        )
+    except Exception as e:
+        print(f"[search_inventory] semantic search failed, falling back: {e}")
+        items = get_inventory(category=category or None, include_embedding=False)[:8]
+
     trimmed = [
-        {"id": i["id"], "name": i["name"], "category": i["category"], "color": i.get("color"), "price": i.get("price")}
-        for i in items[:20]
+        {
+            "id": i["id"], "name": i["name"], "category": i["category"],
+            "color": i.get("color"), "price": i.get("price"),
+            "similarity": round(i.get("similarity", 0), 3) if i.get("similarity") is not None else None,
+        }
+        for i in items[:8]
     ]
+    # CROSS-TURN MEMORY: this tool has no queue_action, so the frontend never
+    # renders these and never logs its own `view` events -- log server-side
+    # so "add the one from earlier" works on a LATER turn, not just this one.
+    from app.db.supabase_client import log_shown_items
+    log_shown_items(session_id, [t["id"] for t in trimmed], "search_inventory")
     return json.dumps(trimmed)
 
 
@@ -109,10 +149,15 @@ def get_color_palette(skin_depth: str, undertone: str) -> str:
 
 
 @tool
-def get_weather(location: str) -> str:
-    """Get current weather for a location, used to adjust clothing recommendations.
-    Placeholder until Module 4 wires OPENWEATHER_API_KEY."""
-    return json.dumps({"note": "Weather integration lands in Module 4.", "location": location})
+def get_weather() -> str:
+    """Get the store's current weather (condition, temperature) to factor into styling advice --
+    e.g. suggesting waterproof shoes on a rainy day, or breathable fabrics when it's hot. Call
+    this before a recommendation if weather might reasonably change what you'd suggest."""
+    from app.services.weather import get_current_weather
+    weather = get_current_weather()
+    if not weather:
+        return json.dumps({"available": False, "note": "Weather isn't configured for this store yet."})
+    return json.dumps({"available": True, **weather})
 
 
 # ---------------- ACTION tools (customer role) ----------------
@@ -132,34 +177,204 @@ def trigger_body_scan() -> str:
     })
 
 
+def _effective_gender(scan: dict) -> str | None:
+    """Store/demo FORCE_GENDER beats the scan row, same as /api/recommend."""
+    from app.routers.vision import forced_gender
+    return forced_gender() or scan.get("gender")
+
+
 @tool
-def recommend_clothes(session_id: str, occasion: str = "", category: str = "") -> str:
-    """Recommend clothing items for the customer based on their scanned profile and the
-    given occasion, AND bring up the recommendations on screen for them hands-free."""
+def recommend_clothes(session_id: str, occasion: str = "", category: str = "", include: str = "") -> str:
+    """Recommend items for the customer based on their scanned profile and the given
+    occasion, AND bring them up on screen hands-free.
+
+    occasion: what she's shopping for, in her words ("sister's wedding", "party").
+
+    include: which item types the customer said she wants, comma-separated or in her
+    own words -- "clothes", "clothes, heels", "dress, bag, heels", "everything",
+    "only clothes". ONLY those are shown. Empty = clothes only (accessories are
+    offered later, once she likes a piece)."""
     scan = get_latest_scan(session_id)
     if not scan:
+        # No scan yet: open the scanner and nothing else. This used to also
+        # queue show_recommendations with cold-start picks, and since the
+        # frontend runs actions in order, that second navigate yanked her
+        # straight off the scanner page to /recommendations. Recommendations
+        # follow automatically once the scan completes (scan_complete event).
         queue_action("start_scan")
         return json.dumps({
-            "error": "No body scan available yet -- triggering a scan now.",
+            "status": "scan_triggered",
             "instruction": (
-                "Do not call get_body_profile or recommend_clothes again this turn -- "
-                "the scan needs the customer to step in front of the camera first. "
-                "Just tell them you're pulling up the scan and keep talking."
+                "There is no body scan yet, so the scanner is opening on screen now. "
+                "Tell her you're opening the body analysis first and her picks will "
+                "appear right after it. Do not call any other tool this turn."
             ),
         })
 
-    result = recommend_items(
-        depth=scan.get("skin_tone_category", "medium"),
-        undertone=scan.get("skin_tone_undertone", "neutral"),
+    # style/constraints/size pulled from the conversation (via user_context.py) --
+    # same Module 1 gap-fix as recommend.py's router: recommend_items() used to
+    # silently ignore these even though it accepted occasion.
+    from app.services.user_context import get_user_context
+    from app.db.supabase_client import get_session_interaction_signals
+    fashion_preferences = get_user_context(session_id)["fashion_preferences"]
+
+    # FEEDBACK LOOP -- items the customer already dismissed this session don't
+    # come back. Solves the "recommends the same skirt she just skipped" bug.
+    signals = get_session_interaction_signals(session_id)
+
+    # STAGE B -- items she's already engaged with (clicked, added to cart,
+    # tried on) become the outfit ANCHOR. When she asks for "a top" and has
+    # beige pants in her cart, the ranker prefers tops that visually and
+    # stylistically go with those pants. Anchors are hydrated with
+    # embedding/style_tags inside recommend_items so we only pay for that
+    # DB round-trip when Stage B will actually run.
+    anchor_items = [{"id": iid} for iid in signals.get("engaged_item_ids", [])[-5:]] or None
+
+    # SESSION-CONTEXT RE-RANKING: a spoken correction to skin undertone/depth
+    # (ConversationState.undertone/skin_depth -- see graph.py) OVERRIDES the
+    # original camera scan for every recommendation from here on, same
+    # pattern chat.py already uses for a spoken height correction
+    # (update_scan_height). Without this, "actually I have a cool undertone"
+    # would be acknowledged in the reply but silently ignored by every
+    # recommend_clothes call afterward, since recommend_items() always used
+    # to read straight from the scan row with no way for the conversation to
+    # ever win.
+    depth = fashion_preferences.get("skin_depth") or scan.get("skin_tone_category", "medium")
+    undertone = fashion_preferences.get("undertone") or scan.get("skin_tone_undertone", "neutral")
+
+    # WEATHER NUDGE (Module 4): applied automatically on every recommendation
+    # rather than left to the model to remember calling get_weather first --
+    # same reasoning as the skip-penalty/cart-anchor biases above, both of
+    # which are also unconditional. A rainy day should bias footwear away
+    # from sandals and toward waterproof options without the customer or the
+    # LLM having to ask. No-ops cleanly (empty terms, no note) when weather
+    # isn't configured or conditions are unremarkable -- see weather.py.
+    from app.services.weather import get_current_weather, weather_style_hints
+    weather = get_current_weather()
+    weather_hints = weather_style_hints(weather)
+    combined_constraints = list(fashion_preferences.get("constraints") or []) + weather_hints["avoid_terms"]
+
+    # No specific category asked for (the scan_complete event, "style me",
+    # "what suits me") -> the COMPLETE LOOK: one short list per category
+    # (tops, bottoms, dress, footwear, bag, watch, jewellery, accessories),
+    # so the screen shows an outfit plus what finishes it, not eight tops.
+    # A specific category ("show me watches") -> the single ranked list.
+    category = normalize_category(category)
+    from app.services.fashion.inventory_search import (
+        parse_requested_items, normalize_occasion, recommend_look_for_occasion, CLOTHES_CATEGORIES,
+    )
+    # Clothes only unless she asked for other item types -- accessories are
+    # offered once she likes a piece (item_liked -> complete_outfit).
+    include_cats = (parse_requested_items(include) if include else None) or list(CLOTHES_CATEGORIES)
+    # The occasion she named earlier counts even if the model left the arg
+    # empty, and it's mapped onto a real catalog tag ("sister's wedding" ->
+    # wedding) so the strict filter can actually match something.
+    occasion = normalize_occasion(occasion) or normalize_occasion(fashion_preferences.get("occasion")) or ""
+    recommend_fn = recommend_items if category else recommend_look_for_occasion
+    result = recommend_fn(
+        depth=depth,
+        undertone=undertone,
         body_shape=scan.get("body_shape", "unknown"),
         occasion=occasion or None,
-        category=category or None,
+        category=category,
         height_cm=scan.get("height_cm"),
         glasses_detected=scan.get("glasses_detected", False),
         hair_length=scan.get("hair_length", "unknown"),
+        style=fashion_preferences.get("style"),
+        constraints=combined_constraints or None,
+        size=scan.get("body_size_estimate"),
+        budget=fashion_preferences.get("budget"),
+        dismissed_item_ids=signals["dismissed_item_ids"],
+        anchor_items=anchor_items,
+        extra_query_terms=weather_hints["prefer_terms"],
+        session_id=session_id,
+        gender=_effective_gender(scan),
+        **({} if category else {"include": include_cats, "strict_occasion": bool(occasion)}),
     )
-    queue_action("show_recommendations", {"occasion": occasion, "category": category, "results": result.get("results", [])})
-    return json.dumps(result)
+    if weather_hints["note"]:
+        for item in result.get("results", []):
+            if item.get("explanation"):
+                item["explanation"] += f"; {weather_hints['note']}"
+    queue_action("show_recommendations", {
+        "occasion": occasion, "category": category,
+        "requested_categories": result.get("requested_categories"),
+        "results": result.get("results", []),
+        # Present only for the complete look -- the page renders these as
+        # headed sections and falls back to the flat grid otherwise.
+        "sections": result.get("sections"),
+    })
+    # CROSS-TURN MEMORY: also log server-side (redundant with whatever the
+    # frontend logs when it renders these on /recommendations, but keeps
+    # this tool correct even if the customer is voice-only and never looks
+    # at the screen -- see search_inventory's identical note).
+    from app.db.supabase_client import log_shown_items
+    log_shown_items(session_id, [r["id"] for r in result.get("results", []) if r.get("id")], "recommend_clothes")
+    # The LLM-facing return is deliberately smaller than what queue_action just
+    # sent to the UI above (which keeps the full result -- image_url,
+    # explanation, etc.) -- this text gets fed back into the agent loop's
+    # message history and resent on every remaining iteration of the SAME
+    # turn (see graph.py), so trimming it directly cuts per-turn token cost.
+    llm_facing = {"results": [
+        {"id": r.get("id"), "name": r.get("name"), "category": r.get("category"),
+         "color": r.get("color"), "price": r.get("price"), "within_budget": r.get("within_budget")}
+        for r in result.get("results", [])[:6]
+    ]}
+    if weather_hints["note"]:
+        llm_facing["weather_note"] = weather_hints["note"]
+        llm_facing["weather_instruction"] = (
+            "Weather genuinely affected this recommendation -- mention it naturally if it fits "
+            "(e.g. 'it's rainy today, so I leaned toward waterproof options'). Don't force it if "
+            "the reply is already getting long."
+        )
+    return json.dumps(llm_facing)
+
+
+@tool
+def complete_outfit(session_id: str, item_id: str, occasion: str = "") -> str:
+    """Build the REST of an outfit around one item the customer has already seen or
+    picked this conversation -- fills in the missing pieces (bottom, footwear, bag,
+    accessory; or just footwear/bag/accessory if the item is a dress) with items that
+    actually go well with it, and shows them on screen. Use this when the customer
+    says things like "complete the look", "what goes with this", "style this for me",
+    or after showing/adding an item when offering to finish the outfit makes sense.
+    item_id MUST be an id you already showed the customer this conversation --
+    never invent one."""
+    from app.services.fashion.outfit_completion import complete_outfit as build_outfit
+    from app.db.supabase_client import get_session_interaction_signals
+
+    signals = get_session_interaction_signals(session_id)
+    from app.services.user_context import get_user_context
+    budget = get_user_context(session_id)["fashion_preferences"].get("budget")
+
+    result = build_outfit(
+        item_id, occasion=occasion or None, budget=budget,
+        dismissed_item_ids=signals["dismissed_item_ids"],
+    )
+    if result.get("error"):
+        return json.dumps(result)
+
+    queue_action("show_recommendations", {
+        "occasion": occasion, "category": None, "results": result.get("results", []),
+    })
+    # CROSS-TURN MEMORY -- see search_inventory's identical note.
+    from app.db.supabase_client import log_shown_items
+    log_shown_items(session_id, [r["id"] for r in result.get("results", []) if r.get("id")], "complete_outfit")
+    # Trimmed for the LLM-facing return -- same reasoning as recommend_clothes
+    # above: this text resends on every remaining loop iteration this turn.
+    # Shape kept as "results": [{"id": ...}] (not a custom "slots_filled" key)
+    # so graph.py's _extract_item_ids can validate a same-turn follow-up like
+    # "add the shoes to cart" against these ids exactly the way it already
+    # does for search_inventory/recommend_clothes results.
+    llm_facing = {
+        "primary_item": result["primary_item"]["name"],
+        "results": [
+            {"id": r.get("id"), "slot": r["slot"], "name": r["name"],
+             "color": r.get("color"), "price": r.get("price")}
+            for r in result.get("results", [])
+        ],
+        "slots_missing": result.get("slots_missing", []),
+    }
+    return json.dumps(llm_facing)
 
 
 @tool
@@ -171,10 +386,46 @@ def show_item_detail(item_id: str) -> str:
 
 
 @tool
+def explain_recommendation(session_id: str, item_id: str) -> str:
+    """Give a richer, specific explanation for why THIS particular item was recommended --
+    use when the customer directly asks "why this one?", "why did you pick this?", or seems
+    unconvinced and wants real reasoning beyond what you've already said. This is a genuine
+    LLM-generated rationale (a few seconds slower than a normal reply), so only call it when
+    the customer is actually asking for deeper reasoning on ONE specific item -- not for every
+    item in a list. item_id MUST be one you already showed the customer this conversation."""
+    from app.db.supabase_client import get_supabase
+    from app.services.user_context import get_user_context
+    from app.services.fashion.llm_explain import generate_llm_rationale
+
+    item = get_supabase().table("inventory").select("id,name,category,color,style_tags").eq("id", item_id).limit(1).execute().data
+    if not item:
+        return json.dumps({"error": "item not found"})
+    item = item[0]
+
+    ctx = get_user_context(session_id)
+    fashion_preferences = ctx["fashion_preferences"]
+    visual_profile = ctx["visual_profile"]
+    user_context_for_llm = {
+        "occasion": fashion_preferences.get("occasion"),
+        "style": fashion_preferences.get("style"),
+        "undertone": fashion_preferences.get("undertone") or visual_profile.get("skin_tone_undertone"),
+        "body_shape": visual_profile.get("body_shape"),
+    }
+
+    rationale = generate_llm_rationale(item, user_context_for_llm)
+    if not rationale:
+        return json.dumps({
+            "rationale": None,
+            "instruction": "Rationale generation failed -- just give your best explanation "
+                            "yourself based on what you already know about the customer and this item.",
+        })
+    return json.dumps({"rationale": rationale})
+
+
+@tool
 def start_virtual_tryon(item_id: str) -> str:
-    """Start virtual try-on for a specific item. NOTE: Module 5 (AR try-on) isn't built
-    yet -- this queues the UI action so the frontend can show a 'coming soon' state,
-    and will drive the real try-on once IDM-VTON/CatVTON is integrated."""
+    """Start virtual try-on for a specific item -- still in development, so this
+    shows a 'coming soon' state rather than a real try-on right now."""
     queue_action("start_tryon", {"item_id": item_id})
     return json.dumps({"status": "tryon_requested", "item_id": item_id, "note": "Module 5 not yet implemented"})
 
@@ -186,13 +437,26 @@ def add_item_to_cart(item_id: str) -> str:
     return json.dumps({"status": "added_to_cart", "item_id": item_id})
 
 
+# ---------------- ACTION tools: human-in-the-loop escalation ----------------
+
+@tool
+def request_staff_assistance(session_id: str, reason: str, message: str = "") -> str:
+    """Escalate to a human store associate hands-free -- use for anything the agent
+    isn't authorized to decide itself: discount negotiation, payment/checkout, refunds,
+    complaints, stock problems, or other special requests. Never invent a discount,
+    price change, or policy exception yourself -- always escalate instead."""
+    row = create_staff_request(session_id, reason, message)
+    queue_action("escalate_to_staff", {"reason": reason, "message": message})
+    from app.services.notifications import hub
+    hub.broadcast_sync("staff", {"type": "new_request", "request": row})
+    return json.dumps({"status": "staff_notified", "reason": reason})
+
+
 # ---------------- ACTION tools: navigation ----------------
 
 @tool
 def navigate_to_page(page: str) -> str:
-    """Navigate hands-free to a screen of the app. Valid values: dashboard, body-scanner,
-    analysis-results, recommendations, stylist, outfit-builder, virtual-tryon,
-    personalization, shopping, profile, settings."""
+    """Navigate hands-free to a screen of the app (see the `page` field's allowed values)."""
     queue_action("navigate", {"page": page})
     return json.dumps({"status": "navigated", "page": page})
 
@@ -330,10 +594,58 @@ def toggle_notification_preference(setting_key: str) -> str:
     return json.dumps({"status": "setting_toggled", "key": setting_key})
 
 
+# ---------------- Core action-tool subset ----------------
+# Deliberately NOT the full CUSTOMER_TOOLS list below. That list includes tools
+# whose target pages operate on hardcoded/mock data (Shopping.js, Personalization.js,
+# Profile.js, Settings.js -- see the CAUTION comments above each), plus
+# update_preferences, which is dead code from the old LangGraph tool-calling loop
+# and is INCOMPATIBLE with the current delta-merge extraction pipeline (it writes
+# to the dormant contextvar queue in preferences.py, which nothing reads anymore).
+# This subset is only the tools with real, working effects: real navigation, a
+# real body scan trigger, a real recommend_items() call, real item focus/cart
+# actions, and real staff escalation.
+CORE_ACTION_TOOLS = [
+    navigate_to_page,
+    trigger_body_scan,
+    recommend_clothes,
+    complete_outfit,
+    show_item_detail,
+    explain_recommendation,
+    add_item_to_cart,
+    start_virtual_tryon,
+    request_staff_assistance,
+]
+
+# ---------------- Tools reachable by the agent's tool-selection loop ----------------
+# graph.py's run_agent_turn() binds exactly this list -- the model freely
+# chooses which of these to call (see graph.py's "TOOL LOOP" module
+# docstring section), not a closed action-type enum. CORE_ACTION_TOOLS above
+# plus four real read tools that let the model check state before acting
+# instead of guessing: search real inventory, check for an existing body
+# scan, look up a flattering color palette, and check real weather (Module 4
+# -- get_weather is a real OpenWeatherMap call now, see app/services/
+# weather.py; recommend_clothes already applies the weather bias
+# automatically on every call, so this tool is for the customer directly
+# asking "what's the weather" and getting a real answer instead of the
+# fast-path's "I'm not linked to live data"). Deliberately still NOT the
+# full CUSTOMER_TOOLS list -- everything excluded from CORE_ACTION_TOOLS
+# above (mock-data pages, dead update_preferences) is excluded here too,
+# plus the admin-only tools (admin_update_stock mutates real inventory and
+# deserves its own confirmation-gated design later; admin role keeps its
+# current behavior unchanged for now).
+LOOP_TOOLS = CORE_ACTION_TOOLS + [
+    search_inventory,
+    get_body_profile,
+    get_color_palette,
+    get_weather,
+]
+
+
 CUSTOMER_TOOLS = [
     update_preferences,
     get_body_profile, search_inventory, get_color_palette, get_weather,
     trigger_body_scan, recommend_clothes, show_item_detail, start_virtual_tryon, add_item_to_cart,
+    request_staff_assistance,
     navigate_to_page,
     select_outfit_category, set_outfit_item, remove_outfit_item, save_current_outfit,
     search_shopping_catalog, filter_shopping_catalog, toggle_wishlist_item,

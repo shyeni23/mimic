@@ -1,0 +1,139 @@
+[
+  {
+    "turn": "I'm going to my cousin's engagement next week.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "occasion": "cousin's engagement"
+      }
+    ]
+  },
+  {
+    "turn": "Show me some recommendations for that.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  },
+  {
+    "turn": "Actually take me to the shopping page.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  },
+  {
+    "turn": "I want something traditional, and my budget is around 5000.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": 5000,
+        "occasion": null,
+        "style_preference": "traditional"
+      }
+    ]
+  },
+  {
+    "turn": "Can you show me what's trending?",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  },
+  {
+    "turn": "Take me to the recommendations page and show me options.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  },
+  {
+    "turn": "I like modern minimalist styles.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": "modern minimalist"
+      }
+    ]
+  },
+  {
+    "turn": "Never mind, go back to the dashboard.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  },
+  {
+    "turn": "Something for a party, budget 3000, and pull up the recommendations.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": 3000,
+        "occasion": "party"
+      }
+    ]
+  },
+  {
+    "turn": "Just chatting, no action needed right now.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ],
+    "args": [
+      {
+        "budget": null,
+        "occasion": null,
+        "style_preference": null
+      }
+    ]
+  }
+]

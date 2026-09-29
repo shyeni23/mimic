@@ -22,7 +22,7 @@ from unittest.mock import patch, MagicMock
 from app.config import settings
 from app.services.agent.preferences import merge_preferences
 from app.services.agent.graph import (
-    run_agent_turn, _build_messages, ConversationTurnOutput, ConversationState,
+    run_agent_turn, _build_messages, _execute_tool_call, ToolCall, AgentTurnOutput, ConversationState,
     CUSTOMER_PROMPT,
 )
 
@@ -72,9 +72,11 @@ def _signals_lightness(prefs: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def _mock_turn(response: str, **state_fields):
-    """Return a ConversationTurnOutput with the given response and state
-    fields, and patch get_agent_llm so run_agent_turn uses it."""
-    output = ConversationTurnOutput(
+    """Return an AgentTurnOutput (no tool_call -- a plain chat step) with the
+    given response and state fields, and patch get_agent_llm so
+    run_agent_turn uses it. Since tool_call is None, the loop breaks after
+    exactly one call, same as these tests always assumed."""
+    output = AgentTurnOutput(
         response=response,
         conversation_state=ConversationState(**state_fields),
     )
@@ -274,6 +276,202 @@ class TestNaturalConversation:
         assert result["reply"]
         assert result["preferences"] == prior
         assert result["actions"] == []
+
+
+# ---------------------------------------------------------------------------
+# Layer 1.5 -- the tool-selection loop's dispatch layer (_execute_tool_call),
+# no LLM involved
+# ---------------------------------------------------------------------------
+#
+# TOOL LOOP: tool_call is now an OPEN selection (ToolCall.tool_name, any of
+# LOOP_TOOLS) the model makes freely, not a closed AgentAction.type enum --
+# see graph.py's module docstring for the full "why". _execute_tool_call()
+# validates and DISPATCHES an already-decided ToolCall to the matching
+# LOOP_TOOLS tool -- no LLM call of its own, so these tests construct
+# ToolCall directly instead of mocking bind_tools()/tool_calls. Unlike the
+# old _execute_action (which returned the queued actions list directly),
+# _execute_tool_call returns the tool's raw JSON result string -- actions
+# are read separately via get_queued_actions() once per turn (see
+# run_agent_turn), so these tests check both: the returned result string,
+# and the queue.
+
+class TestToolCallExecution:
+    """Covers _execute_tool_call's dispatch logic: mapping a ToolCall to the
+    right tool, session_id trust, item_id enforcement, and graceful failure."""
+
+    def test_unknown_tool_returns_error_and_queues_nothing(self):
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call("s0", ToolCall(tool_name=None), set(), {})
+        assert "error" in result
+        assert get_queued_actions() == []
+
+    def test_single_tool_call_fires_and_queues_action(self):
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call(
+            "s2", ToolCall(tool_name="navigate_to_page", page="shopping"), set(), {},
+        )
+        assert "navigated" in result
+        actions = get_queued_actions()
+        assert len(actions) == 1
+        assert actions[0]["type"] == "navigate"
+        assert actions[0]["payload"]["page"] == "shopping"
+
+    def test_session_id_is_never_trusted_from_llm(self):
+        """recommend_clothes needs session_id -- _execute_tool_call must
+        always use the real session_id this turn is running for. ToolCall
+        doesn't even expose a session_id field, by design -- this confirms
+        the real one is used."""
+        from app.services.agent.actions import start_turn
+        start_turn()
+        with patch("app.services.agent.tools.get_latest_scan", return_value=None) as mock_scan:
+            _execute_tool_call(
+                "REAL-SESSION-ID", ToolCall(tool_name="recommend_clothes", occasion="party"), set(), {},
+            )
+        # recommend_clothes calls get_latest_scan(session_id) as its first
+        # real step -- confirm it was called with the REAL id.
+        mock_scan.assert_called_once_with("REAL-SESSION-ID")
+
+    def test_missing_item_id_never_fabricated(self):
+        """show_item_detail/add_item_to_cart/start_virtual_tryon require a
+        real item_id -- if the model left it unset, _execute_tool_call must
+        not invent one or invoke the tool at all."""
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call("s3", ToolCall(tool_name="show_item_detail", item_id=None), set(), {})
+        assert "error" in result
+        assert get_queued_actions() == []
+
+    def test_item_id_not_shown_this_turn_is_rejected(self):
+        """Structural enforcement (new in this design): an item_id the model
+        supplies must actually have come from a search_inventory/
+        recommend_clothes result earlier THIS turn -- not just any string."""
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call(
+            "s3b", ToolCall(tool_name="add_item_to_cart", item_id="fabricated-id"), set(), {},
+        )
+        assert "error" in result
+        assert get_queued_actions() == []
+
+    def test_item_id_shown_this_turn_is_accepted(self):
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call(
+            "s3c", ToolCall(tool_name="add_item_to_cart", item_id="real-id"), {"real-id"}, {},
+        )
+        assert "error" not in result
+        actions = get_queued_actions()
+        assert len(actions) == 1
+        assert actions[0]["payload"]["item_id"] == "real-id"
+
+    def test_missing_page_never_fabricated(self):
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        result = _execute_tool_call("s4", ToolCall(tool_name="navigate_to_page", page=None), set(), {})
+        assert "error" in result
+        assert get_queued_actions() == []
+
+    def test_tool_exception_does_not_crash(self):
+        """One tool failing must not prevent the function from returning
+        cleanly -- the loop must be able to keep going, not crash the turn."""
+        from app.services.agent.actions import start_turn, get_queued_actions
+        start_turn()
+        with patch("app.services.agent.tools.get_latest_scan", side_effect=RuntimeError("db down")):
+            result = _execute_tool_call("s5", ToolCall(tool_name="recommend_clothes"), set(), {})
+        assert "error" in result  # failure surfaced back to the model, not silently swallowed
+        assert get_queued_actions() == []
+
+
+class TestRunAgentTurnToolLoop:
+    """run_agent_turn's own wiring of the loop -- it only dispatches tools
+    when extraction succeeded (llm_configured), never on the
+    LLMConfigurationError/empty-input early-return paths, and it can chain
+    more than one LLM call within a single turn when the model keeps
+    requesting tools."""
+
+    def test_successful_turn_includes_real_actions(self):
+        """Two-step turn: step 1 requests a tool (response left null), step 2
+        (after the tool result is fed back) gives the final reply with no
+        further tool_call -- this is the loop's core mechanic."""
+        step1 = AgentTurnOutput(
+            response=None,
+            conversation_state=ConversationState(),
+            tool_call=ToolCall(tool_name="navigate_to_page", page="shopping"),
+        )
+        step2 = AgentTurnOutput(
+            response="Sure, taking you there now!",
+            conversation_state=ConversationState(),
+            tool_call=None,
+        )
+        mock_structured = MagicMock()
+        mock_structured.invoke.side_effect = [step1, step2]
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured
+
+        with patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm):
+            result = run_agent_turn("s7", "Take me to shopping.", [])
+
+        assert result["reply"] == "Sure, taking you there now!"
+        assert len(result["actions"]) == 1
+        assert result["actions"][0]["type"] == "navigate"
+        assert mock_structured.invoke.call_count == 2
+
+    def test_plain_chat_turn_costs_exactly_one_llm_call(self):
+        """No regression: a turn that needs no tool must not loop further.
+        A second call would return a RuntimeError instead of a valid output,
+        so this fails loudly if the loop doesn't break after step 0."""
+        step = AgentTurnOutput(
+            response="Pastels are lovely on you!",
+            conversation_state=ConversationState(color_preferences=["pastel"]),
+            tool_call=None,
+        )
+        mock_structured = MagicMock()
+        mock_structured.invoke.side_effect = [step, RuntimeError("should never be called a second time")]
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured
+
+        with patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm):
+            result = run_agent_turn("s7b", "I like pastel colors.", [])
+
+        assert result["reply"] == "Pastels are lovely on you!"
+        assert result["actions"] == []
+        assert mock_structured.invoke.call_count == 1
+
+    def test_bound_hit_still_returns_a_reply(self):
+        """If the model keeps requesting tools past MAX_TOOL_ITERATIONS, the
+        loop must still return a valid reply, never hang or crash."""
+        looping_step = AgentTurnOutput(
+            response=None,
+            conversation_state=ConversationState(),
+            tool_call=ToolCall(tool_name="get_body_profile"),
+        )
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = looping_step  # always wants another tool
+
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured
+
+        with patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm), \
+             patch("app.services.agent.tools.get_latest_scan", return_value=None):
+            result = run_agent_turn("s9", "keep going", [])
+
+        assert result["reply"]  # graceful fallback, not empty/None
+        assert isinstance(result["actions"], list)
+
+    def test_llm_configuration_error_skips_tool_dispatch_entirely(self):
+        """When the first call fails with LLMConfigurationError, there's no
+        tool to dispatch and no further loop iterations -- confirms
+        get_agent_llm is only invoked once and actions stays empty rather
+        than raising."""
+        from app.services.agent.llm import LLMConfigurationError
+        with patch("app.services.agent.graph.get_agent_llm", side_effect=LLMConfigurationError("no key")) as mock_get_llm:
+            result = run_agent_turn("s8", "anything", [])
+        assert result["actions"] == []
+        assert mock_get_llm.call_count == 1
 
 
 # ---------------------------------------------------------------------------

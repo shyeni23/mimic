@@ -33,6 +33,12 @@ const UNDERTONE_MAP = {
   unknown: 'Unknown',
 };
 
+const GENDER_MAP = {
+  male: 'Male',
+  female: 'Female',
+  unknown: 'Unknown',
+};
+
 export function mapBodyShape(raw) {
   return BODY_SHAPE_MAP[raw] || raw;
 }
@@ -47,4 +53,8 @@ export function mapSkinDepth(raw) {
 
 export function mapUndertone(raw) {
   return UNDERTONE_MAP[raw] || raw;
+}
+
+export function mapGender(raw) {
+  return GENDER_MAP[raw] || raw;
 }

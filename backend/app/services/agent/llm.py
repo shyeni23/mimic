@@ -19,9 +19,15 @@ model with native with_structured_output support, so this file no longer
 needs a hand-rolled REST client, schema cleaner, or $ref resolver the way
 the Gemini wrapper did.
 """
+import logging
+import time
+from functools import lru_cache
+
 from langchain_groq import ChatGroq
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 
 class _ChatGroqStructured(ChatGroq):
@@ -68,15 +74,76 @@ class LLMConfigurationError(RuntimeError):
     """
 
 
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+_BASE_DELAY = 2.0
+
+
+def invoke_with_retry(structured_llm, messages, *, max_retries=_MAX_RETRIES):
+    """Invoke with exponential backoff on transient Groq errors.
+
+    Returns the parsed structured output on success, re-raises on
+    non-retryable errors or after exhausting retries.
+    """
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return structured_llm.invoke(messages)
+        except LLMConfigurationError:
+            raise
+        except Exception as e:
+            err_str = str(e)
+            status = getattr(e, "status_code", None)
+            is_rate_limit = status == 429 or "rate_limit" in err_str.lower() or "429" in err_str
+            is_retryable = is_rate_limit or status in _RETRYABLE_STATUS_CODES or "overloaded" in err_str.lower()
+
+            if not is_retryable or attempt == max_retries:
+                raise
+
+            delay = _BASE_DELAY * (2 ** attempt)
+            if is_rate_limit:
+                delay = max(delay, 10.0)
+            log.warning("Groq call failed (attempt %d/%d, retrying in %.0fs): %s",
+                        attempt + 1, max_retries + 1, delay, err_str[:200])
+            last_exc = e
+            time.sleep(delay)
+
+    raise last_exc  # unreachable, but satisfies type checkers
+
+
+@lru_cache
+def _cached_agent_llm() -> ChatGroq:
+    """Rebuilding ChatGroq on every /api/chat request adds 1-2s of constructor
+    + auth overhead per turn -- lru_cache reuses the same client across
+    requests (langchain-groq's ChatGroq is a stateless HTTP wrapper so this
+    is safe). Reset by process restart, which the dev --reload flag already
+    handles cleanly."""
+    return _ChatGroqStructured(
+        model=settings.groq_model,
+        api_key=settings.groq_api_key,
+        temperature=0.3,
+        # Bumped 400 -> 1200 -> 2400: 2400 lets Aria give richer multi-sentence
+        # replies (needed for off-topic chat, jokes, longer explanations)
+        # without truncation. Groq gpt-oss-120b runs at ~500 tok/s so the
+        # extra headroom adds <3s worst case.
+        max_tokens=2400,
+        # NOTE: reasoning_effort="low" + reasoning_format="hidden" were tried
+        # here but broke json_schema structured output live -- every structured
+        # turn returned "Tool choice is none, but model called a tool" 400s from
+        # Groq. Root cause: gpt-oss-120b in structured-JSON mode emits the tool
+        # call inside its reasoning section, and hiding reasoning strips it
+        # from the payload the schema validator then rejects. Reliability over
+        # 5s speed win -- keep default reasoning behavior.
+    )
+
+
 def get_agent_llm() -> ChatGroq:
+    """Public wrapper -- checks API key at call time, then returns the
+    cached client. The check itself is cheap; caching the ChatGroq instance
+    saves the ~1-2s per-request construction cost."""
     if not settings.groq_api_key:
         raise LLMConfigurationError(
             "GROQ_API_KEY is not set -- add it to backend/.env to enable the "
             "conversational agent (see backend/.env.example)."
         )
-    return _ChatGroqStructured(
-        model=settings.groq_model,
-        api_key=settings.groq_api_key,
-        temperature=0.3,
-        max_tokens=1024,
-    )
+    return _cached_agent_llm()

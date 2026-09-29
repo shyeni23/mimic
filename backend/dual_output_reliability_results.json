@@ -1,0 +1,66 @@
+[
+  {
+    "turn": "I'm going to my cousin's engagement next week.",
+    "status": "success",
+    "tool_calls": []
+  },
+  {
+    "turn": "Show me some recommendations for that.",
+    "status": "success",
+    "tool_calls": []
+  },
+  {
+    "turn": "Actually take me to the shopping page.",
+    "status": "success",
+    "tool_calls": [
+      "navigate_to_page"
+    ]
+  },
+  {
+    "turn": "I want something traditional, and my budget is around 5000.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ]
+  },
+  {
+    "turn": "Can you show me what's trending?",
+    "status": "success",
+    "tool_calls": [
+      "navigate_to_page"
+    ]
+  },
+  {
+    "turn": "Take me to the recommendations page and show me options.",
+    "status": "success",
+    "tool_calls": [
+      "navigate_to_page"
+    ]
+  },
+  {
+    "turn": "I like modern minimalist styles.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ]
+  },
+  {
+    "turn": "Never mind, go back to the dashboard.",
+    "status": "success",
+    "tool_calls": [
+      "navigate_to_page"
+    ]
+  },
+  {
+    "turn": "Something for a party, budget 3000, and pull up the recommendations.",
+    "status": "success",
+    "tool_calls": [
+      "extract_conversation_state"
+    ]
+  },
+  {
+    "turn": "Just chatting, no action needed right now.",
+    "status": "success",
+    "tool_calls": []
+  }
+]

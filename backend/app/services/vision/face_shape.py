@@ -1,25 +1,76 @@
 """
-Heuristic face-shape classification from MediaPipe FaceMesh landmarks (468/478 pts).
+Face-shape classification: a trained model first, a geometric heuristic as
+the fallback.
 
-Landmark indices (standard MediaPipe FaceMesh topology):
+PRIMARY PATH: a real classifier trained on labeled data (Diksha-cmd's
+FaceNet-based model, vendored in face_shape_ml/ -- see that module's
+docstring for full attribution/license). This replaced the pure hand-tuned
+heuristic per the Module 1 research brief's recommendation ("the current
+hand-tuned face-shape rules should be replaced or supplemented by a learned
+classifier") -- face shape was one of the brief's two top-priority items,
+and this was the one with a genuinely usable released model (MIT-licensed
+weights, reports ~100ms/image on CPU) rather than requiring us to train
+from scratch.
+
+FALLBACK PATH (_classify_face_shape_heuristic, unchanged from before): used
+whenever the trained model isn't available (weights not set up yet) or
+declines to answer (no clean face detected, side profile, multiple faces) --
+this project's existing "never crash, degrade gracefully" pattern, same as
+detect_glasses()/DeepFace's gender path. A scan should never fail outright
+just because the ML model had a bad frame; the geometric heuristic still
+gives a real (if less accurate) answer from the SAME FaceMesh landmarks
+already being extracted every scan.
+
+CLASS-NAME MAPPING: the trained model's 5 classes are Oblong/Heart/Square/
+Oval/Round (the standard schema for this problem, per the research brief and
+the dataset it's trained on). This project's existing internal keyword for
+"oblong" is "long" (see mapBackendValues.js's FACE_SHAPE_MAP on the frontend)
+-- translated at the boundary below so nothing downstream needs to change.
+The old heuristic's 6th category, "diamond", isn't part of the trained
+model's label schema (per the brief: "only add another class if the
+project's label schema requires it") -- the heuristic fallback can still
+return it, but the ML path never will.
+
+Landmark indices used by the fallback heuristic (standard MediaPipe FaceMesh
+topology):
   10  = top of forehead        152 = chin (bottom of face)
   234 = left cheekbone/temple  454 = right cheekbone/temple
   127 = left forehead edge     356 = right forehead edge
   172 = left jaw               397 = right jaw
 """
 import math
+from functools import lru_cache
+
+import numpy as np
 
 FOREHEAD_TOP, CHIN = 10, 152
 CHEEK_LEFT, CHEEK_RIGHT = 234, 454
 FOREHEAD_LEFT, FOREHEAD_RIGHT = 127, 356
 JAW_LEFT, JAW_RIGHT = 172, 397
 
+_MODEL_CLASS_TO_INTERNAL = {
+    "oblong": "long",
+    "heart": "heart",
+    "square": "square",
+    "oval": "oval",
+    "round": "round",
+}
+
+
+@lru_cache
+def _get_face_shape_model():
+    """Lazy singleton, same pattern as detect_glasses()/DeepFace's gender
+    model -- raises on first call if weights aren't set up yet; callers
+    catch that and fall back to the heuristic rather than failing the scan."""
+    from app.services.vision.face_shape_ml.predictor import FaceShapePredictor
+    return FaceShapePredictor()
+
 
 def _dist(p1: dict, p2: dict) -> float:
     return math.hypot(p1["x"] - p2["x"], p1["y"] - p2["y"])
 
 
-def classify_face_shape(face_landmarks: list[dict]) -> dict:
+def _classify_face_shape_heuristic(face_landmarks: list[dict]) -> dict:
     if not face_landmarks or len(face_landmarks) < 468:
         return {"face_shape": "unknown", "confidence": 0.0, "reason": "insufficient landmarks"}
 
@@ -77,7 +128,7 @@ def classify_face_shape(face_landmarks: list[dict]) -> dict:
         reasons.append("close to a category boundary -- treat this reading as approximate")
 
     print(
-        f"[vision:face_shape] length_px={face_length:.1f} cheek_px={cheekbone_width:.1f} "
+        f"[vision:face_shape] (heuristic fallback) length_px={face_length:.1f} cheek_px={cheekbone_width:.1f} "
         f"forehead_px={forehead_width:.1f} jaw_px={jaw_width:.1f} "
         f"length/width={length_to_width:.3f} jaw/cheek={jaw_to_cheek:.3f} "
         f"forehead/cheek={forehead_to_cheek:.3f} forehead/jaw={forehead_to_jaw:.3f} "
@@ -95,3 +146,35 @@ def classify_face_shape(face_landmarks: list[dict]) -> dict:
             "jaw_width_px": round(jaw_width, 1),
         },
     }
+
+
+def classify_face_shape(face_landmarks: list[dict], image_bgr: "np.ndarray | None" = None) -> dict:
+    """
+    Tries the trained model first (needs the actual frame, not just
+    landmarks -- it runs its own internal face detection/alignment). Falls
+    back to the geometric heuristic (landmarks-only) whenever the model
+    isn't available, or declines to answer for this frame.
+    """
+    if image_bgr is not None:
+        try:
+            model = _get_face_shape_model()
+            rgb = image_bgr[:, :, ::-1]  # BGR (this project's convention) -> RGB (predictor's)
+            result = model.predict(rgb)
+            if result["status"] == "ok":
+                shape = _MODEL_CLASS_TO_INTERNAL.get(result["face_shape"], result["face_shape"])
+                confidence = round(float(result["scores"][result["face_shape"]]), 2)
+                print(
+                    f"[vision:face_shape] (trained model) scores={result['scores']} -> {shape} "
+                    f"(confidence={confidence})"
+                )
+                return {
+                    "face_shape": shape,
+                    "confidence": confidence,
+                    "reason": "predicted by a trained classifier (FaceNet-based, fine-tuned on labeled face-shape data)",
+                    "metrics": {"model_scores": result["scores"]},
+                }
+            print(f"[vision:face_shape] trained model declined ({result['status']}) -- falling back to heuristic")
+        except Exception as e:
+            print(f"[vision:face_shape] trained model unavailable ({e}) -- falling back to heuristic")
+
+    return _classify_face_shape_heuristic(face_landmarks)
