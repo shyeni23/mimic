@@ -1,17 +1,21 @@
 """
-Deterministic handling of "I'm looking for X" requests -- works with no LLM.
+Deterministic handling of shopping requests and "thanks" -- works with no LLM.
 
-Rule (user-specified): when a customer asks for any item and hasn't been
-scanned yet, Aria remembers the request and opens the body-scan page first,
-so the looks she picks afterwards fit the customer's body shape and skin
-tone. The request's occasion is saved into the conversation preferences,
-which /api/recommend already reads (user_context.py), so the post-scan
-recommendations are filtered to what was asked for.
+Rules (user-specified):
+- "I'm looking for X" before any scan -> Aria remembers the request and opens
+  the body-scan page first, so her picks fit the body shape and skin tone.
+- The request narrows the picks to ONLY what was asked: "saree" shows sarees,
+  not kurtis. The item words and occasion are saved into the conversation
+  preferences (`requested_items`, `occasion`), which /api/recommend reads, so
+  the post-scan page shows the same narrowed set.
+- After the scan, a request is answered directly with those items.
+- "Thanks" / "that's all" -> a warm goodbye and the chat ends.
 
-Also provides the no-LLM fallback for a shopping request when the scan
-already exists but the LLM is unavailable (Groq quota): go straight to the
-recommendations for that request instead of "Sorry, I hit a little snag".
+Shopping requests never go through the LLM: its recommend tool builds a
+whole look (tops, bottoms, accessories...), which is exactly the "I asked
+for a saree and got kurtis too" problem.
 """
+import random
 import re
 
 from app.services.agent.actions import start_turn, queue_action, get_queued_actions
@@ -40,6 +44,17 @@ _OCCASION_RE = re.compile(
     r"|puja|pooja|date|dinner|travel|trip|vacation|holiday|gym|sports?|college|function|brunch|beach)\b",
     re.IGNORECASE,
 )
+_CLOSING_RE = re.compile(
+    r"\b(thanks?|thank\s*(?:you|u)|thx|ty|that'?s\s+all|that'?s\s+it|bye|good\s*bye|see\s+you)\b",
+    re.IGNORECASE,
+)
+_GOODBYES = [
+    "You're very welcome! It was lovely styling you today. Enjoy your shopping!",
+    "My pleasure! You're going to look wonderful. Have a lovely day!",
+    "You're welcome! Come back anytime you need a stylist. Take care!",
+]
+# Occasions the catalog has no tag for -> the closest one it has.
+_OCCASION_ALIASES = {"anniversary": "party"}
 
 
 def parse_shopping_request(text: str) -> dict | None:
@@ -59,18 +74,57 @@ def parse_shopping_request(text: str) -> dict | None:
     return None
 
 
+def is_closing(text: str) -> bool:
+    """'thanks', 'thank you for recommending', "that's all" -- but not
+    'thanks, now show me shoes' (a new request)."""
+    return bool(text and len(text.split()) <= 12 and _CLOSING_RE.search(text)
+                and not _SHOPPING_RE.search(text))
+
+
 def _describe(req: dict) -> str:
-    garments = req["garments"]
-    what = " and ".join(garments[:2]) if garments else "outfit"
+    what = " and ".join(req["garments"][:2]) if req["garments"] else "outfit"
     return f"{req['occasion']} {what}" if req["occasion"] else what
 
 
 def _prefs_with_request(prior: dict, text: str, req: dict) -> dict:
     delta = {"notes": text.strip()}
     if req["occasion"]:
-        # Occasions the catalog has no tag for -> the closest one it has.
-        delta["occasion"] = {"anniversary": "party"}.get(req["occasion"], req["occasion"])
-    return merge_preferences(prior or {}, delta)
+        delta["occasion"] = _OCCASION_ALIASES.get(req["occasion"], req["occasion"])
+    prefs = merge_preferences(prior or {}, delta)
+    prefs.pop("conversation_ended", None)
+    # Always overwritten (merge_preferences skips []): a new request replaces
+    # the last one instead of piling up "saree" + "shoes" + ...
+    prefs["requested_items"] = req["garments"]
+    return prefs
+
+
+def _build_look(session_id: str, prefs: dict) -> dict | None:
+    """/api/recommend's own result for these preferences, or None."""
+    from app.routers.recommend import recommend
+    from app.models.schemas import RecommendRequest
+    try:
+        look = recommend(RecommendRequest(
+            session_id=session_id, grouped=True, occasion=prefs.get("occasion"),
+            requested_items=prefs.get("requested_items") or [],
+        ))
+    except Exception as e:
+        print(f"[shopping_intent] recommendations failed (non-fatal): {e}")
+        return None
+    return look if look.get("results") else None
+
+
+def _show_look(session_id: str, prefs: dict, lead: str) -> str:
+    """Queue the recommendations and return the sentence that introduces them."""
+    look = _build_look(session_id, prefs)
+    if not look:
+        queue_action("navigate", {"page": "recommendations"})
+        return f"{lead} Here are my picks, chosen for your body shape and skin tone."
+    queue_action("show_recommendations", {"results": look["results"], "sections": look.get("sections")})
+    if look.get("mode") == "requested_items":
+        labels = " and ".join(s["label"].lower() for s in look["sections"])
+        occ = f" for your {prefs['occasion']}" if prefs.get("occasion") else ""
+        return f"{lead} Here are {len(look['results'])} {labels}{occ}, picked for your body shape and skin tone."
+    return f"{lead} Here's a look picked for your body shape and skin tone."
 
 
 def scan_first_turn(session_id: str, text: str, prior_preferences: dict, has_scan: bool) -> dict | None:
@@ -88,13 +142,32 @@ def scan_first_turn(session_id: str, text: str, prior_preferences: dict, has_sca
             "preferences": _prefs_with_request(prior_preferences, text, req)}
 
 
-def offline_shopping_turn(session_id: str, text: str, prior_preferences: dict) -> dict | None:
-    """LLM unavailable + shopping request with a scan -> show recommendations."""
+def show_request_turn(session_id: str, text: str, prior_preferences: dict) -> dict | None:
+    """Shopping request after the scan -> show exactly what was asked for."""
     req = parse_shopping_request(text)
     if not req:
         return None
+    prefs = _prefs_with_request(prior_preferences, text, req)
     start_turn()
-    queue_action("navigate", {"page": "recommendations"})
-    reply = f"Here are my picks for your {_describe(req)}, chosen for your body shape and skin tone."
-    return {"reply": reply, "actions": get_queued_actions(),
-            "preferences": _prefs_with_request(prior_preferences, text, req)}
+    reply = _show_look(session_id, prefs, "Great choice!")
+    return {"reply": reply, "actions": get_queued_actions(), "preferences": prefs}
+
+
+def post_scan_turn(session_id: str, prefs: dict) -> dict | None:
+    """scan_complete after she asked for specific items -> show only those
+    (instead of the LLM's whole-look recommendation). None if she didn't."""
+    if not (prefs or {}).get("requested_items"):
+        return None
+    start_turn()
+    reply = _show_look(session_id, prefs, "Your scan is done!")
+    return {"reply": reply, "actions": get_queued_actions(), "preferences": prefs}
+
+
+def closing_turn(text: str) -> dict | None:
+    """'thanks' -> goodbye + end the chat; preferences reset for a fresh start."""
+    if not is_closing(text):
+        return None
+    start_turn()
+    queue_action("end_conversation", {})
+    return {"reply": random.choice(_GOODBYES), "actions": get_queued_actions(),
+            "preferences": {"conversation_ended": True}}

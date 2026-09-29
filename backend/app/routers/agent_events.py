@@ -41,6 +41,17 @@ def agent_event(req: AgentEventRequest):
     # event turn -- without this, scan_complete ran with an empty "what you
     # already know" and the post-scan picks ignored the occasion she'd named.
     prior_preferences = extract_prior_preferences(history)
+    if req.event == "scan_complete" and req.role == "customer":
+        # She asked for specific items before the scan ("a wedding saree"):
+        # show only those, not the LLM's whole-look recommendation.
+        from app.services.agent.shopping_intent import post_scan_turn
+        requested = post_scan_turn(req.session_id, prior_preferences)
+        if requested:
+            append_conversation_turn(req.session_id, "assistant", requested["reply"],
+                                     meta={"triggered_by_event": req.event,
+                                           "preferences": requested["preferences"]})
+            return ChatResponse(session_id=req.session_id, reply=requested["reply"],
+                                extracted_context=None, actions=requested["actions"])
     result = run_agent_turn(req.session_id, trigger_message, history, role=req.role,
                             prior_preferences=prior_preferences)
 

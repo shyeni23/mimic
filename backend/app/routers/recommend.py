@@ -75,7 +75,16 @@ def recommend(req: RecommendRequest):
     strict_occasion = req.strict_occasion or bool(req.occasion) or conversation_occasion
 
     category = normalize_category(req.category)
-    if req.grouped and not category:
+    requested = (req.requested_items if req.requested_items is not None
+                 else fashion_preferences.get("requested_items"))
+    result = None
+    if req.grouped and not category and requested:
+        # She named an item type ("saree") -> show only that type.
+        from app.services.fashion.requested_items import recommend_requested
+        result = recommend_requested(requested, session_id=req.session_id, **scan_kwargs)
+    if result is not None:
+        pass
+    elif req.grouped and not category:
         # The post-scan view: what suits this body, PLUS the footwear, bag,
         # watch, jewellery and accessories that finish it -- one section each.
         result = recommend_look_for_occasion(

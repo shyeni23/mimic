@@ -42,6 +42,9 @@ class RecommendRequest(BaseModel):
     # round-robin flattened `results`. See inventory_search.recommend_complete_look.
     grouped: bool = False
     per_category: int = 3
+    # Item types she named ("saree", "heels") -> only those are shown. None =
+    # use what the conversation saved (shopping_intent.py); [] = no narrowing.
+    requested_items: list[str] | None = None
     # Which item categories the customer actually wants shown, e.g.
     # ["dress", "bag", "footwear"] -- nothing else is built. Empty/None =
     # the full look. `items_text` is the raw answer to "what should I

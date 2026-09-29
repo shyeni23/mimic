@@ -136,6 +136,14 @@ export function VoiceAgentProvider({ children }) {
           logout();
           navigate('/');
           break;
+        case 'end_conversation':
+          // "Thanks" -- let her goodbye play out, then clear the chat and
+          // return to the home screen, ready for the next request.
+          setTimeout(() => {
+            setMessages([]);
+            navigate('/dashboard');
+          }, 7000);
+          break;
         case 'select_outfit_category':
         case 'set_outfit_item':
         case 'remove_outfit_item':

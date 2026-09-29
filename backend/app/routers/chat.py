@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.services.voice.nlp_extract import extract_context
 from app.services.agent.graph import run_agent_turn, stream_agent_turn
 from app.services.agent.preferences import extract_prior_preferences
-from app.services.agent.shopping_intent import scan_first_turn, offline_shopping_turn
+from app.services.agent.shopping_intent import scan_first_turn, show_request_turn, closing_turn
 from app.db.supabase_client import (
     append_conversation_turn, get_conversation_history, update_scan_height, get_latest_scan,
 )
@@ -23,10 +23,14 @@ def _has_scan(session_id: str) -> bool:
 
 
 def _pre_agent_turn(req: ChatRequest, prior_preferences: dict) -> dict | None:
-    """Shopping request before any scan -> open the scanner (no LLM needed)."""
+    """Handled without the LLM (see shopping_intent.py): "thanks" ends the
+    chat; a shopping request opens the scanner first, or -- once scanned --
+    shows only the items asked for."""
     if req.role != "customer":
         return None
-    return scan_first_turn(req.session_id, req.message, prior_preferences, _has_scan(req.session_id))
+    return (closing_turn(req.message)
+            or scan_first_turn(req.session_id, req.message, prior_preferences, _has_scan(req.session_id))
+            or show_request_turn(req.session_id, req.message, prior_preferences))
 
 
 def _offline_if_failed(req: ChatRequest, result: dict, prior_preferences: dict) -> dict:
@@ -34,7 +38,7 @@ def _offline_if_failed(req: ChatRequest, result: dict, prior_preferences: dict) 
     quota: "Sorry, I hit a little snag") or the backup model just asked a
     question -> open the recommendations for that request instead."""
     if req.role == "customer" and (result.get("llm_failed") or not result.get("actions")):
-        return offline_shopping_turn(req.session_id, req.message, prior_preferences) or result
+        return show_request_turn(req.session_id, req.message, prior_preferences) or result
     return result
 
 
