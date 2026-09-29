@@ -6,7 +6,9 @@ from fastapi.responses import StreamingResponse
 from app.services.voice.nlp_extract import extract_context
 from app.services.agent.graph import run_agent_turn, stream_agent_turn
 from app.services.agent.preferences import extract_prior_preferences
-from app.services.agent.shopping_intent import scan_first_turn, show_request_turn, closing_turn
+from app.services.agent.shopping_intent import (
+    scan_first_turn, show_request_turn, closing_turn, item_choice_turn,
+)
 from app.db.supabase_client import (
     append_conversation_turn, get_conversation_history, update_scan_height, get_latest_scan,
 )
@@ -29,6 +31,8 @@ def _pre_agent_turn(req: ChatRequest, prior_preferences: dict) -> dict | None:
     if req.role != "customer":
         return None
     return (closing_turn(req.message)
+            # before the shopping rules: "add the first saree" names a garment too
+            or item_choice_turn(req.session_id, req.message, prior_preferences)
             or scan_first_turn(req.session_id, req.message, prior_preferences, _has_scan(req.session_id))
             or show_request_turn(req.session_id, req.message, prior_preferences))
 

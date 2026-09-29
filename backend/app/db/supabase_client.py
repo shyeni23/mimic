@@ -225,16 +225,19 @@ def append_conversation_turn(session_id: str, role: str, content: str, meta: dic
 
 
 def get_conversation_history(session_id: str, limit: int = 50) -> list[dict]:
+    """The most recent `limit` turns, oldest first. (Ordering ascending
+    before the limit returned the OLDEST turns, so past `limit` turns Aria
+    lost everything recent -- latest preferences, the list on screen.)"""
     sb = get_supabase()
     res = (
         sb.table("conversations")
         .select("*")
         .eq("session_id", session_id)
-        .order("created_at", desc=False)
+        .order("created_at", desc=True)
         .limit(limit)
         .execute()
     )
-    return res.data
+    return list(reversed(res.data or []))
 
 
 # ---------- Staff escalation (human-in-the-loop) ----------

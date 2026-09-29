@@ -120,11 +120,73 @@ def _show_look(session_id: str, prefs: dict, lead: str) -> str:
         queue_action("navigate", {"page": "recommendations"})
         return f"{lead} Here are my picks, chosen for your body shape and skin tone."
     queue_action("show_recommendations", {"results": look["results"], "sections": look.get("sections")})
+    # Remember the ON-SCREEN order, so "add the first one" means the first
+    # card she sees (item_choice_turn), and log them for Aria's LLM memory.
+    prefs["last_shown"] = [{"id": i["id"], "name": i.get("name")} for i in look["results"][:24]]
+    prefs.pop("pending_item", None)
+    from app.db.supabase_client import log_shown_items
+    log_shown_items(session_id, [i["id"] for i in look["results"]], "requested_items")
     if look.get("mode") == "requested_items":
         labels = " and ".join(s["label"].lower() for s in look["sections"])
         occ = f" for your {prefs['occasion']}" if prefs.get("occasion") else ""
         return f"{lead} Here are {len(look['results'])} {labels}{occ}, picked for your body shape and skin tone."
     return f"{lead} Here's a look picked for your body shape and skin tone."
+
+
+_ORDINALS = {
+    "first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2, "fourth": 3, "4th": 3,
+    "fifth": 4, "5th": 4, "sixth": 5, "6th": 5, "seventh": 6, "7th": 6, "eighth": 7, "8th": 7,
+    "ninth": 8, "9th": 8, "tenth": 9, "10th": 9, "last": -1,
+}
+_ORDINAL_RE = re.compile(r"\b(" + "|".join(_ORDINALS) + r")\b|\b(?:number|no\.?|option|item|#)\s*(\d{1,2})\b",
+                         re.IGNORECASE)
+_ADD_RE = re.compile(r"\b(add|cart|buy|take|purchase|fitting\s+room|i'?ll\s+have)\b", re.IGNORECASE)
+_LIKE_RE = re.compile(r"\b(like|love|nice|beautiful|pretty|lovely|gorgeous|this\s+one|that\s+one)\b", re.IGNORECASE)
+_YES_RE = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok(?:ay)?|please|go\s+ahead|add\s+it|do\s+it|haan|ha|ji)\b",
+                     re.IGNORECASE)
+
+
+def _pick(shown: list[dict], text: str) -> dict | None:
+    m = _ORDINAL_RE.search(text)
+    if not m:
+        return None
+    idx = _ORDINALS[m.group(1).lower()] if m.group(1) else int(m.group(2)) - 1
+    if -len(shown) <= idx < len(shown):
+        return shown[idx]
+    return None
+
+
+def item_choice_turn(session_id: str, text: str, prior_preferences: dict) -> dict | None:
+    """'add the first one to my cart', 'I like the second one', then 'yes' --
+    resolved against the list she is actually looking at (last_shown), not
+    left to the LLM, which picked an older item for "the first one"."""
+    prefs = dict(prior_preferences or {})
+    shown = prefs.get("last_shown") or []
+    pending = prefs.get("pending_item")
+    item = _pick(shown, text) if shown else None
+
+    if item is None and pending and (_YES_RE.search(text) or
+                                     (_ADD_RE.search(text) and len(text.split()) <= 8)):
+        item = pending                       # "yes" / "add it" after "shall I add it?"
+        wants_add = True
+    elif item is not None:
+        wants_add = bool(_ADD_RE.search(text))
+        if not wants_add and not _LIKE_RE.search(text):
+            return None
+    else:
+        return None
+
+    start_turn()
+    name = item.get("name") or "that one"
+    if wants_add:
+        queue_action("add_to_cart", {"item_id": item["id"]})
+        prefs.pop("pending_item", None)
+        reply = f"Done! I've added the {name} to your fitting room. Would you like heels or a clutch to go with it?"
+    else:
+        queue_action("show_item", {"item_id": item["id"]})
+        prefs["pending_item"] = item
+        reply = f"Great pick, the {name}! Shall I add it to your cart?"
+    return {"reply": reply, "actions": get_queued_actions(), "preferences": prefs}
 
 
 def scan_first_turn(session_id: str, text: str, prior_preferences: dict, has_scan: bool) -> dict | None:
