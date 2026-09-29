@@ -16,15 +16,18 @@ Three layers:
    real LangChain + Groq pipeline) -- need a real GROQ_API_KEY, skipped
    automatically when one isn't configured.
 """
+import contextlib
+
 import pytest
 from unittest.mock import patch, MagicMock
 
 from app.config import settings
 from app.services.agent.preferences import merge_preferences
 from app.services.agent.graph import (
-    run_agent_turn, _build_messages, _execute_tool_call, ToolCall, AgentTurnOutput, ConversationState,
-    CUSTOMER_PROMPT,
+    run_agent_turn, stream_agent_turn, _build_messages, _execute_tool_call, _looks_like_action,
+    ToolCall, AgentTurnOutput, ConversationState, CUSTOMER_PROMPT,
 )
+from app.services.agent.llm import LLMConfigurationError
 
 _HAS_GROQ_KEY = bool(settings.groq_api_key)
 _skip_no_key = pytest.mark.skipif(
@@ -84,7 +87,19 @@ def _mock_turn(response: str, **state_fields):
     mock_structured = MagicMock()
     mock_structured.invoke.return_value = output
     mock_llm.with_structured_output.return_value = mock_structured
-    return patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm)
+    return _structured_path(mock_llm)
+
+
+@contextlib.contextmanager
+def _structured_path(mock_llm):
+    """Patch get_agent_llm AND force the structured path. These tests are
+    about preference extraction, which only the structured path does --
+    without forcing it, a message with no action keyword ("Maybe something
+    softer") would be routed to the tool-less fast path and hit the real
+    fast-chat model instead of the mock."""
+    with patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm), \
+         patch("app.services.agent.graph._looks_like_action", return_value=True):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +470,7 @@ class TestRunAgentTurnToolLoop:
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
 
-        with patch("app.services.agent.graph.get_agent_llm", return_value=mock_llm), \
+        with _structured_path(mock_llm), \
              patch("app.services.agent.tools.get_latest_scan", return_value=None):
             result = run_agent_turn("s9", "keep going", [])
 
@@ -467,11 +482,68 @@ class TestRunAgentTurnToolLoop:
         tool to dispatch and no further loop iterations -- confirms
         get_agent_llm is only invoked once and actions stays empty rather
         than raising."""
-        from app.services.agent.llm import LLMConfigurationError
-        with patch("app.services.agent.graph.get_agent_llm", side_effect=LLMConfigurationError("no key")) as mock_get_llm:
+        with patch("app.services.agent.graph.get_agent_llm", side_effect=LLMConfigurationError("no key")) as mock_get_llm, \
+             patch("app.services.agent.graph.get_fast_chat_llm", side_effect=LLMConfigurationError("no key")):
             result = run_agent_turn("s8", "anything", [])
         assert result["actions"] == []
+        assert result["reply"]  # friendly apology, not a crash
         assert mock_get_llm.call_count == 1
+
+
+class TestFastChatRouting:
+    """Chit-chat goes to the plain fast model (its own Groq quota bucket);
+    anything carrying a preference or action goes to the structured path,
+    and a fast-model failure falls through to it instead of apologising."""
+
+    @pytest.mark.parametrize("text", [
+        "Maybe something softer.",
+        "I prefer cotton, nothing too heavy",
+        "can you show me lighter colours",
+        "I don't want embroidery",
+        "something more elegant",
+    ])
+    def test_preference_refinements_use_structured_path(self, text):
+        assert _looks_like_action(text, [])
+
+    @pytest.mark.parametrize("text", ["hi, how are you?", "tell me a joke", "thank you so much"])
+    def test_chit_chat_uses_fast_path(self, text):
+        assert not _looks_like_action(text, [])
+
+    def test_chit_chat_uses_fast_model_only(self):
+        fast = MagicMock()
+        fast.invoke.return_value = MagicMock(content="Doing great, thanks for asking!")
+        with patch("app.services.agent.graph.get_fast_chat_llm", return_value=fast), \
+             patch("app.services.agent.graph.get_agent_llm") as agent_llm:
+            result = run_agent_turn("s10", "hi, how are you?", [])
+        assert result["reply"] == "Doing great, thanks for asking!"
+        agent_llm.assert_not_called()
+
+    def test_fast_model_failure_falls_through_to_structured(self):
+        output = AgentTurnOutput(response="Hello! How can I help?", conversation_state=ConversationState())
+        structured = MagicMock()
+        structured.invoke.return_value = output
+        agent = MagicMock()
+        agent.with_structured_output.return_value = structured
+        fast = MagicMock()
+        fast.invoke.side_effect = RuntimeError("429 rate_limit_exceeded")
+        with patch("app.services.agent.graph.get_fast_chat_llm", return_value=fast), \
+             patch("app.services.agent.graph.get_agent_llm", return_value=agent):
+            result = run_agent_turn("s11", "hi, how are you?", [])
+        assert result["reply"] == "Hello! How can I help?"
+
+    def test_stream_failure_before_any_text_falls_through_to_structured(self):
+        output = AgentTurnOutput(response="Hello! How can I help?", conversation_state=ConversationState())
+        structured = MagicMock()
+        structured.invoke.return_value = output
+        agent = MagicMock()
+        agent.with_structured_output.return_value = structured
+        fast = MagicMock()
+        fast.stream.side_effect = RuntimeError("429 rate_limit_exceeded")
+        with patch("app.services.agent.graph.get_fast_chat_llm", return_value=fast), \
+             patch("app.services.agent.graph.get_agent_llm", return_value=agent):
+            events = list(stream_agent_turn("s12", "hi, how are you?", []))
+        assert events == [("fallback", events[0][1])]
+        assert events[0][1]["reply"] == "Hello! How can I help?"
 
 
 # ---------------------------------------------------------------------------

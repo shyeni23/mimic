@@ -1,10 +1,10 @@
 """
 Reports engagement by variant for a live recommender_configs A/B test (see
 app/services/fashion/model_registry.py's report_variant_performance --
-read that function's docstring for how sessions get bucketed and its one
-real limitation: only recommend_clothes-sourced interactions are counted,
-since that's the only caller that threads session_id into
-rerank_by_compatibility today).
+read that function's docstring for how sessions get bucketed; only
+recommend_clothes- and complete_outfit-sourced interactions are counted,
+since those are the callers that thread session_id into
+rerank_by_compatibility).
 
 Run:
     python scripts/report_ab_test.py                      # stage_b_weights, last 30 days
@@ -37,7 +37,7 @@ def run(name: str, days: int):
         print(report["error"])
         return
 
-    print(f"Engagement over the last {days} day(s) (recommend_clothes-sourced only):")
+    print(f"Engagement over the last {days} day(s) (recommend_clothes + complete_outfit):")
     for variant, stats in sorted(report.items()):
         rate = f"{stats['engagement_rate']:.1%}" if stats["engagement_rate"] is not None else "n/a (no impressions yet)"
         print(f"  {variant}: {stats['sessions']} sessions, {stats['shown']} shown, "

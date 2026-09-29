@@ -78,8 +78,12 @@ def complete_outfit(
     budget: str | float | None = None,
     dismissed_item_ids: list[str] | None = None,
     slots: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """Build a full outfit around one item.
+
+    session_id: passed to rerank_by_compatibility so this path gets the
+    session's A/B "stage_b_weights" variant, same as recommend_clothes.
 
     Returns:
         {
@@ -115,7 +119,7 @@ def complete_outfit(
             continue
 
         candidates = _hydrate_candidates(candidates)
-        ranked = rerank_by_compatibility(candidates, anchor, top_k=3)
+        ranked = rerank_by_compatibility(candidates, anchor, top_k=3, session_id=session_id)
         ranked = _apply_budget_filter(ranked, budget_value)
         if not ranked:
             slots_missing.append(slot)

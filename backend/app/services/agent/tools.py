@@ -349,6 +349,7 @@ def complete_outfit(session_id: str, item_id: str, occasion: str = "") -> str:
     result = build_outfit(
         item_id, occasion=occasion or None, budget=budget,
         dismissed_item_ids=signals["dismissed_item_ids"],
+        session_id=session_id,
     )
     if result.get("error"):
         return json.dumps(result)

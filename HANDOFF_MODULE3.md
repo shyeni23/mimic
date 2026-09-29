@@ -205,19 +205,30 @@ sandboxed browser pane.
     parser and the section plan with `_fill_group` stubbed -- no DB needed.
     **Retrieval quality for these paths is NOT yet verified live** (see the blocker below).
 
-## !! BLOCKER (2026-09-29): the Supabase project is unreachable
-
-`blaramhfobnjalalifur.supabase.co` returns **NXDOMAIN from public DNS** (verified via dns.google),
-while huggingface.co/google.com resolve fine -- so it is not a local network fault. A free-tier
-Supabase project is **paused after 7 days of inactivity** and its hostname stops resolving; the last
-session was 2026-09-19, i.e. 10 days earlier. **The user must open the Supabase dashboard and
-restore/unpause the project** (if it was deleted instead, a new project means new URL + key in
-`backend/.env` and re-running `schema.sql` + all migrations + the seed/backfill scripts).
-
-Nothing catalog-related can run or be verified until then: every recommendation path fails with
-`[Errno 11001] getaddrinfo failed`. What was confirmed still working offline on 2026-09-29:
-gender ensemble on both saved frames (female 0.77-0.78), the department + safety filters (8/8 cases),
-and the test suite (76 passed, 2 skipped -- the 2 skips are the DB-dependent ones).
+25. **Gap-closing pass (2026-09-29, later)** — all work committed to git on branch
+    `feature/modules-1-5` (it was all uncommitted since the initial push; `data/product_images/`
+    is now gitignored, 888MB). Then:
+    - **Fast chat on its own Groq quota** — new `config.groq_fast_model` (`openai/gpt-oss-20b`) +
+      `llm.get_fast_chat_llm()`, used by graph.py's fast path (sync + streaming) and
+      `llm_explain.py`. Tool/structured turns stay on 120b. Verified live: chit-chat answered
+      on 20b while the 120b daily quota was exhausted.
+    - **Fast-path failures now fall through** to the structured path instead of crashing
+      (`get_*_llm()` was called outside the try) or apologising (stream path). New
+      `run_agent_turn(..., allow_fast_path=False)` so the fallback doesn't call the fast model twice.
+    - **Style refinements routed to the structured path** — "maybe something softer",
+      "I prefer cotton", "no embroidery" had no action keyword, went to the fast path, and were
+      never saved to conversation_state. Added a refinement-word group to `_ACTION_KEYWORDS`.
+    - **`design_preference` restored to `ConversationState`** — the slim-schema cut removed it
+      while the prompt and `tools.py` still used it, so "something simple" was silently dropped.
+    - **`complete_outfit` joined the A/B test** (passes `session_id` to `rerank_by_compatibility`);
+      `report_variant_performance` counts both sources and now **pages past 1000 rows**
+      (it had the same PostgREST truncation bug as item 5).
+    - Tests: stale mocks in `test_natural_language_extraction.py` fixed (they didn't account for
+      the fast path) + new `TestFastChatRouting`. **126 passed** excluding the live-Groq class.
+    - `.env.example` had `GROQ_MODEL=openai/gpt-oss-20b` (the model config.py says fails at
+      structured output) — now 120b, plus `GROQ_FAST_MODEL` and `FORCE_GENDER`. Both READMEs
+      rewritten (backend one still described Ollama/qwen).
+    - Supabase is reachable again (the 2026-09-29 NXDOMAIN blocker is resolved).
 
 ## SQL migrations already run by the user (don't re-ask)
 
@@ -231,13 +242,9 @@ All are also in `backend/app/db/schema.sql` and `backend/app/db/module3_missing_
 1. ~~Underwear/lingerie appears in recommendations.~~ **FIXED** (item 15 above) — filter now
    applies on every path (`catalog_filters.passes_sanity_check`), with whole-word matching and
    briefs/boxers/trunks/camisole/shapewear added.
-2. **Groq daily quota is the main practical blocker.** 200,000 tokens/day on the free tier,
-   hit repeatedly this session. Even after the prompt trim that's only ~40 interactions/day, and
-   the automatic greeting fires every time the camera detects a person. Two options:
-   upgrade the Groq tier, or route the fast-chat (non-tool) path to `openai/gpt-oss-20b` —
-   the quota is **per model**, so that would use a separate 200K bucket. `config.py` already
-   defines `groq_native_model` as 20b. Note `config.py` warns 20b was worse for *structured*
-   output; the fast path is non-structured, so it's the low-risk place to try it.
+2. **Groq daily quota** — mitigated (item 25: chit-chat now uses 20b's separate 200K bucket),
+   but tool/structured turns still share 120b's 200K/day (~40 tool turns). For real store
+   traffic, upgrade the Groq tier.
 3. **Aria's spoken reply after a scan is unverified.** The tool call itself is confirmed working
    (returns 8 items spanning clothes + accessories), but every attempt to verify her actual
    spoken reply hit the quota limit. Re-test `POST /api/agent/event` with
@@ -250,10 +257,13 @@ All are also in `backend/app/db/schema.sql` and `backend/app/db/module3_missing_
    Stage A (FashionCLIP + pgvector) + Stage B (rule-based ranking). Needs an inference function
    before it affects anything. Also remember it's trained on synthetic data, so its output isn't
    meaningful about real customers yet.
-6. **`complete_outfit` is excluded from the A/B test** — it reranks but never passes `session_id`
-   into `rerank_by_compatibility`, so it always gets default weights.
+6. ~~`complete_outfit` is excluded from the A/B test~~ **FIXED** (item 25).
 7. **Height/size confidence values were re-tuned** when I reordered the estimation tiers. Worth
    sanity-checking against real people if precision matters.
+8. **Module 5 (staff escalation) scope was never specified** — code exists (`routers/staff.py`,
+   `StaffRequests.js`), but confirm with the user what it must do before calling it done.
+9. **Live Groq tests** (`TestNaturalLanguageExtraction`) have not been re-run since item 25 —
+   the 120b quota was exhausted. Run them on a fresh quota day.
 
 ## Working style that worked well
 

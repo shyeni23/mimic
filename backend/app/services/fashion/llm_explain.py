@@ -22,7 +22,7 @@ path: Groq's json_schema constrained decoding is the dominant latency
 driver on this model, not generation length. A short, unconstrained text
 response is meaningfully faster than a structured one for output this small.
 """
-from app.services.agent.llm import get_agent_llm
+from app.services.agent.llm import get_fast_chat_llm
 
 
 def generate_llm_rationale(item: dict, user_context: dict, template_explanation: str = "") -> str | None:
@@ -31,7 +31,7 @@ def generate_llm_rationale(item: dict, user_context: dict, template_explanation:
     to the existing template explanation, never blocks on this.
     """
     try:
-        llm = get_agent_llm()  # plain, non-structured -- see module docstring
+        llm = get_fast_chat_llm()  # plain, non-structured -- see module docstring
     except Exception as e:
         print(f"[llm_explain] LLM not available (non-fatal, using template explanation): {e}")
         return None

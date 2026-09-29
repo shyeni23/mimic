@@ -74,7 +74,7 @@ from typing import Literal, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field as PydanticField, ValidationError
 
-from app.services.agent.llm import get_agent_llm, invoke_with_retry, LLMConfigurationError
+from app.services.agent.llm import get_agent_llm, get_fast_chat_llm, invoke_with_retry, LLMConfigurationError
 from app.services.agent.memory import window_history
 from app.services.agent.preferences import merge_preferences
 from app.services.agent.tools import LOOP_TOOLS
@@ -239,6 +239,10 @@ class ConversationState(BaseModel):
     disliked_colors: Optional[list[str]] = None
     budget: Optional[str] = None
     fit: Optional[str] = None
+    # How bold/subtle she wants it ('simple', 'light', 'statement'). The prompt
+    # and tools.py's update tool both use it -- dropping it from the slim
+    # schema silently discarded answers like "something simple".
+    design_preference: Optional[str] = None
     constraints: Optional[list[str]] = PydanticField(
         default=None, description="Things to AVOID, e.g. 'heavy embroidery', 'flashy', 'tight'.")
     notes: Optional[str] = PydanticField(
@@ -546,6 +550,14 @@ _ACTION_KEYWORDS = re.compile(
     r"|office|work|meeting|interview|formal|casual|ethnic|traditional|festival|diwali"
     r"|puja|pooja|eid|date|dinner|travel|trip|vacation|holiday|gym|sports?|college|function"
     r"|clothes|clothing|accessor(?:y|ies)|jewell?ery|heels?|footwear"
+    # Style refinements ("maybe something softer", "not so heavy", "I prefer
+    # cotton") are preferences too, so they need the structured path or the
+    # fast path silently drops them from conversation_state.
+    r"|soft(?:er)?|light(?:er)?|dark(?:er)?|bright(?:er)?|subtle|bold(?:er)?|simpler?"
+    r"|minimal|elegant|classy|fancy|fancier|plain(?:er)?|heavy|heavier|embroider(?:y|ed)"
+    r"|print(?:s|ed)?|floral|patterns?|stripe[sd]?|fabric|cotton|silk|linen|fit(?:ted)?"
+    r"|looser?|tight(?:er)?|comfortable|comfy|modern|trendy|colou?rs|shades?|tones?"
+    r"|prefer|avoid|instead|rather|don'?t\s+(?:like|want)|cheaper|affordable|expensive"
     r")\b",
     re.IGNORECASE,
 )
@@ -794,9 +806,11 @@ def _fast_chat_turn(
     Returns None to signal "fall through to the structured path" -- used
     both on LLM failure and when the reply looks like a leaked tool-call
     JSON blob (see _looks_like_json_leak)."""
-    fast_llm = get_agent_llm()  # no with_structured_output()
     messages = _build_messages(system_prompt, windowed_history, user_text)
     try:
+        # Acquired inside the try: a missing key or a 429 on the fast model's
+        # own quota must fall through to the structured path, not crash.
+        fast_llm = get_fast_chat_llm()  # no with_structured_output()
         result = fast_llm.invoke(messages)
         reply = (result.content if hasattr(result, "content") else str(result)).strip()
     except Exception as e:
@@ -864,11 +878,11 @@ def stream_agent_turn(
     # (the JSON-leak sniff) is the safety net for anything that slips through.
     fast_system_prompt = _build_fast_prompt(role, prior_preferences, session_id, digest)
 
-    fast_llm = get_agent_llm()
     messages = _build_messages(fast_system_prompt, windowed_history, user_text)
     accumulated = []
     leaked = False
     try:
+        fast_llm = get_fast_chat_llm()
         for chunk in fast_llm.stream(messages):
             text = chunk.content if hasattr(chunk, "content") else str(chunk)
             if not text:
@@ -886,14 +900,23 @@ def stream_agent_turn(
             yield "delta", text
     except Exception as e:
         print(f"[stream-fast] LLM stream failed, falling back: {e}")
-        yield "fallback", {"reply": "Sorry, hit a snag -- try again?", "actions": [],
-                           "preferences": prior_preferences}
+        if accumulated:
+            # Part of a reply is already on screen -- re-answering on the
+            # structured path would show her two different replies.
+            yield "fallback", {"reply": "Sorry, hit a snag -- try again?", "actions": [],
+                               "preferences": prior_preferences}
+        else:
+            # Nothing shown yet (fast model's quota exhausted, bad key...):
+            # answer on the structured path instead of apologising.
+            yield "fallback", run_agent_turn(session_id, user_text, history, role=role,
+                                             prior_preferences=prior_preferences,
+                                             allow_fast_path=False)
         return
 
     if leaked:
         print("[stream-fast] detected JSON/tool-call leak mid-stream, re-routing to structured path")
         result = run_agent_turn(session_id, user_text, history, role=role,
-                                prior_preferences=prior_preferences)
+                                prior_preferences=prior_preferences, allow_fast_path=False)
         yield "fallback", result
         return
 
@@ -907,8 +930,14 @@ def run_agent_turn(
     history: list[dict],
     role: str = "customer",
     prior_preferences: dict | None = None,
+    *,
+    allow_fast_path: bool = True,
 ) -> dict:
     """
+    allow_fast_path=False: stream_agent_turn already tried the fast model for
+    this turn (it failed or leaked JSON) -- go straight to the structured path
+    instead of calling the fast model a second time.
+
     history: list of {"role": "user"|"assistant", "content": str} from Supabase
     -- the FULL relevant conversation, not just the latest message, so the
     model can resolve references like "not too heavy" back to what was
@@ -952,7 +981,7 @@ def run_agent_turn(
     # {"tool_call": {"tool_name": "search_inventory", ...}} in the chat).
     # Fix: the fast path gets its OWN prompt that never mentions tools or
     # their JSON shape at all -- see _build_fast_prompt.
-    if not _looks_like_action(user_text, windowed_history):
+    if allow_fast_path and not _looks_like_action(user_text, windowed_history):
         fast_prompt = _build_fast_prompt(role, prior_preferences, session_id, digest)
         fast_result = _fast_chat_turn(fast_prompt, windowed_history, user_text, prior_preferences)
         if fast_result is not None:

@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # architecture. Re-run `client.models.list()` if this ever 404s again --
     # do not guess a model name, this project has been burned by that twice.
     groq_native_model: str = "openai/gpt-oss-20b"
+    # Model for plain (non-structured, tool-less) calls: graph.py's fast chat
+    # path and llm_explain.py. The 20b's weakness above was STRUCTURED output;
+    # these calls are free text, so it's the low-risk place to use it. Groq's
+    # free-tier 200K tokens/day quota is PER MODEL, so this moves chit-chat
+    # onto its own bucket and leaves 120b's quota for tool/structured turns.
+    # Set to "" to put everything back on groq_model.
+    groq_fast_model: str = "openai/gpt-oss-20b"
 
     # Whisper
     whisper_model_size: str = "base"

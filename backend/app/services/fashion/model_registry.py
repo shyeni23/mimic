@@ -180,6 +180,11 @@ def list_config_history(name: str) -> list[dict]:
     )
 
 
+# interactions.context->>'source' values whose ranking honours the session's
+# A/B variant (both pass session_id to rerank_by_compatibility).
+_AB_SOURCES = ("recommend_clothes", "complete_outfit")
+
+
 def report_variant_performance(name: str, days_back: int = 30) -> dict:
     """Compares engagement across the currently-active variants of `name`.
 
@@ -196,14 +201,11 @@ def report_variant_performance(name: str, days_back: int = 30) -> dict:
     approximation; for anything longer, re-run this soon after each
     registry change instead of spanning across one.
 
-    Only interactions logged with context->>'source' == 'recommend_clothes'
-    are counted -- that is the ONLY caller that passes session_id into
-    rerank_by_compatibility today (see compatibility.py), so it's the only
-    path where a customer's variant assignment could have actually changed
-    what they were shown. complete_outfit reranks too but doesn't thread
-    session_id through, so it always gets the default regardless of any
-    active test -- including it here would just dilute both variants with
-    identical noise.
+    Only interactions logged with context->>'source' in _AB_SOURCES are
+    counted -- the callers that pass session_id into rerank_by_compatibility
+    (see compatibility.py), i.e. the only paths where a customer's variant
+    assignment could have actually changed what they were shown. Counting
+    other sources would dilute both variants with identical noise.
     """
     sb = get_supabase()
     active = (
@@ -220,14 +222,24 @@ def report_variant_performance(name: str, days_back: int = 30) -> dict:
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
 
-    rows = (
-        sb.table("interactions")
-        .select("session_id,event_type")
-        .eq("context->>source", "recommend_clothes")
-        .gte("created_at", since)
-        .execute()
-        .data or []
-    )
+    # Paged: PostgREST caps a plain select at 1000 rows, which would
+    # silently report on only the first 1000 interactions.
+    rows, offset = [], 0
+    while True:
+        page = (
+            sb.table("interactions")
+            .select("session_id,event_type")
+            .in_("context->>source", list(_AB_SOURCES))
+            .gte("created_at", since)
+            .order("created_at")
+            .range(offset, offset + 999)
+            .execute()
+            .data or []
+        )
+        rows.extend(page)
+        if len(page) < 1000:
+            break
+        offset += 1000
 
     # Bucket every (session, event) pair by which variant that session
     # would be assigned today -- same cumulative-range walk get_active_config

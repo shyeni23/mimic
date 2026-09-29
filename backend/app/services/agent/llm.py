@@ -147,3 +147,28 @@ def get_agent_llm() -> ChatGroq:
             "conversational agent (see backend/.env.example)."
         )
     return _cached_agent_llm()
+
+
+@lru_cache
+def _cached_fast_chat_llm() -> ChatGroq:
+    return ChatGroq(
+        model=settings.groq_fast_model,
+        api_key=settings.groq_api_key,
+        temperature=0.3,
+        max_tokens=2400,
+    )
+
+
+def get_fast_chat_llm() -> ChatGroq:
+    """Plain-text LLM for tool-less calls (graph.py's fast chat path,
+    llm_explain.py) -- see config.groq_fast_model for why it's a separate
+    model. Never use this with with_structured_output(): structured and
+    tool turns stay on get_agent_llm()."""
+    if not settings.groq_fast_model:
+        return get_agent_llm()
+    if not settings.groq_api_key:
+        raise LLMConfigurationError(
+            "GROQ_API_KEY is not set -- add it to backend/.env to enable the "
+            "conversational agent (see backend/.env.example)."
+        )
+    return _cached_fast_chat_llm()
