@@ -8,6 +8,15 @@ from app.models.schemas import AgentEventRequest, ChatResponse
 
 router = APIRouter(prefix="/api/agent", tags=["agent events (proactive, Module 2)"])
 
+# Spoken when the LLM is unavailable for these events (see agent_event).
+_OFFLINE_REPLIES = {
+    "conversation_start": (
+        "Hi, I'm Aria, your personal stylist! Tell me what you're shopping for, "
+        "or stand still for a quick body scan and I'll pick looks that suit you."
+    ),
+    "scan_complete": "Your scan is done! Here's a complete look picked for your body shape and skin tone.",
+}
+
 
 @router.post("/event", response_model=ChatResponse)
 def agent_event(req: AgentEventRequest):
@@ -42,7 +51,13 @@ def agent_event(req: AgentEventRequest):
         # customer who never spoke to her (four of them appeared during one
         # scan live). Nothing is persisted either; the transcript shouldn't
         # carry apologies for questions nobody asked.
-        return ChatResponse(session_id=req.session_id, reply="", extracted_context=None, actions=[])
+        # Exception: the greeting and the post-scan line. Silence there makes
+        # the mirror look broken, so fall back to a fixed line.
+        fallback = _OFFLINE_REPLIES.get(req.event, "")
+        if fallback:
+            append_conversation_turn(req.session_id, "assistant", fallback,
+                                     meta={"triggered_by_event": req.event, "offline_fallback": True})
+        return ChatResponse(session_id=req.session_id, reply=fallback, extracted_context=None, actions=[])
 
     # Persist preferences so the next chat turn still knows them, and the
     # liked item so her "yes" to accessories can resolve to its real id

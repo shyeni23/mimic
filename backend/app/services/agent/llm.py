@@ -97,7 +97,10 @@ def invoke_with_retry(structured_llm, messages, *, max_retries=_MAX_RETRIES):
             is_rate_limit = status == 429 or "rate_limit" in err_str.lower() or "429" in err_str
             is_retryable = is_rate_limit or status in _RETRYABLE_STATUS_CODES or "overloaded" in err_str.lower()
 
-            if not is_retryable or attempt == max_retries:
+            # A DAILY-quota 429 won't clear in 10s -- retrying only made the
+            # customer wait ~30s for the same failure.
+            daily_quota = "per day" in err_str.lower() or "(tpd)" in err_str.lower()
+            if not is_retryable or daily_quota or attempt == max_retries:
                 raise
 
             delay = _BASE_DELAY * (2 ** attempt)
@@ -122,6 +125,9 @@ def _cached_agent_llm() -> ChatGroq:
         model=settings.groq_model,
         api_key=settings.groq_api_key,
         temperature=0.3,
+        # invoke_with_retry does the retrying; the SDK's own retries made a
+        # daily-quota 429 take ~30s to surface.
+        max_retries=0,
         # Bumped 400 -> 1200 -> 2400: 2400 lets Aria give richer multi-sentence
         # replies (needed for off-topic chat, jokes, longer explanations)
         # without truncation. Groq gpt-oss-120b runs at ~500 tok/s so the
@@ -156,6 +162,7 @@ def _cached_fast_chat_llm() -> ChatGroq:
         api_key=settings.groq_api_key,
         temperature=0.3,
         max_tokens=2400,
+        max_retries=0,
     )
 
 
