@@ -179,3 +179,24 @@ def get_fast_chat_llm() -> ChatGroq:
             "conversational agent (see backend/.env.example)."
         )
     return _cached_fast_chat_llm()
+
+
+@lru_cache
+def _cached_structured_fallback_llm() -> ChatGroq:
+    return _ChatGroqStructured(
+        model=settings.groq_fast_model,
+        api_key=settings.groq_api_key,
+        temperature=0.3,
+        max_tokens=2400,
+        max_retries=0,
+    )
+
+
+def get_structured_fallback_llm() -> ChatGroq | None:
+    """Backup for graph.py's structured/tool path when groq_model fails
+    (e.g. its daily quota is spent): the fast model has its own quota. Less
+    reliable at structured output than 120b, but better than an apology.
+    None when no separate fast model is configured."""
+    if not settings.groq_fast_model or settings.groq_fast_model == settings.groq_model:
+        return None
+    return _cached_structured_fallback_llm()

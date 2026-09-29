@@ -6,10 +6,36 @@ from fastapi.responses import StreamingResponse
 from app.services.voice.nlp_extract import extract_context
 from app.services.agent.graph import run_agent_turn, stream_agent_turn
 from app.services.agent.preferences import extract_prior_preferences
-from app.db.supabase_client import append_conversation_turn, get_conversation_history, update_scan_height
+from app.services.agent.shopping_intent import scan_first_turn, offline_shopping_turn
+from app.db.supabase_client import (
+    append_conversation_turn, get_conversation_history, update_scan_height, get_latest_scan,
+)
 from app.models.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/api/chat", tags=["chat (Module 2)"])
+
+
+def _has_scan(session_id: str) -> bool:
+    try:
+        return get_latest_scan(session_id) is not None
+    except Exception:
+        return True  # can't tell -- don't bounce her to the scanner on a DB hiccup
+
+
+def _pre_agent_turn(req: ChatRequest, prior_preferences: dict) -> dict | None:
+    """Shopping request before any scan -> open the scanner (no LLM needed)."""
+    if req.role != "customer":
+        return None
+    return scan_first_turn(req.session_id, req.message, prior_preferences, _has_scan(req.session_id))
+
+
+def _offline_if_failed(req: ChatRequest, result: dict, prior_preferences: dict) -> dict:
+    """Shopping request that ended with nothing on screen -- LLM down (Groq
+    quota: "Sorry, I hit a little snag") or the backup model just asked a
+    question -> open the recommendations for that request instead."""
+    if req.role == "customer" and (result.get("llm_failed") or not result.get("actions")):
+        return offline_shopping_turn(req.session_id, req.message, prior_preferences) or result
+    return result
 
 
 @router.post("", response_model=ChatResponse)
@@ -38,7 +64,10 @@ def chat(req: ChatRequest):
         pass
 
     try:
-        result = run_agent_turn(req.session_id, req.message, history, role=req.role, prior_preferences=prior_preferences)
+        result = (_pre_agent_turn(req, prior_preferences)
+                  or _offline_if_failed(req, run_agent_turn(req.session_id, req.message, history, role=req.role,
+                                                            prior_preferences=prior_preferences),
+                                        prior_preferences))
     except Exception as e:
         traceback.print_exc()
         result = {"reply": "Sorry, something went wrong -- could you try again?", "actions": [], "preferences": prior_preferences}
@@ -99,10 +128,14 @@ def chat_stream(req: ChatRequest):
         final_actions: list = []
         final_prefs = prior_preferences
         try:
-            for chunk_type, payload in stream_agent_turn(
+            pre = _pre_agent_turn(req, prior_preferences)
+            turns = ([("fallback", pre)] if pre else stream_agent_turn(
                 req.session_id, req.message, history,
                 role=req.role, prior_preferences=prior_preferences,
-            ):
+            ))
+            for chunk_type, payload in turns:
+                if chunk_type == "fallback":
+                    payload = _offline_if_failed(req, payload, prior_preferences)
                 if chunk_type == "delta":
                     final_reply += payload
                     yield sse_event("delta", {"text": payload})

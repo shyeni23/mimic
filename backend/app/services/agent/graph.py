@@ -74,7 +74,9 @@ from typing import Literal, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field as PydanticField, ValidationError
 
-from app.services.agent.llm import get_agent_llm, get_fast_chat_llm, invoke_with_retry, LLMConfigurationError
+from app.services.agent.llm import (
+    get_agent_llm, get_fast_chat_llm, get_structured_fallback_llm, invoke_with_retry, LLMConfigurationError,
+)
 from app.services.agent.memory import window_history
 from app.services.agent.preferences import merge_preferences
 from app.services.agent.tools import LOOP_TOOLS
@@ -1042,6 +1044,10 @@ def run_agent_turn(
 
     try:
         structured_llm = get_agent_llm().with_structured_output(AgentTurnOutput)
+        backup = get_structured_fallback_llm()
+        if backup is not None:
+            # 120b's daily quota spent -> answer on the fast model's own quota.
+            structured_llm = structured_llm.with_fallbacks([backup.with_structured_output(AgentTurnOutput)])
         for step in range(MAX_TOOL_ITERATIONS + 1):
             result = invoke_with_retry(structured_llm, messages)
             if result.response:

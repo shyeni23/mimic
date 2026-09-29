@@ -36,6 +36,13 @@ _skip_no_key = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_backup_model():
+    """Mocked tests control get_agent_llm; keep the real 20b backup out of them."""
+    with patch("app.services.agent.graph.get_structured_fallback_llm", return_value=None):
+        yield
+
+
 def _run(history, user_text, prior_preferences=None):
     """Small helper -- most tests just need the preferences dict back."""
     result = run_agent_turn("test-session", user_text, history, prior_preferences=prior_preferences)
