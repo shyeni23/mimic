@@ -71,12 +71,78 @@ def _plan(word: str) -> tuple[str | None, re.Pattern | None, str]:
     return category, re.compile(r"\b(?:" + pattern + r")\b", re.IGNORECASE), label
 
 
+# Substrings to look up by product name (the regex then enforces whole words,
+# so "sari" can't match "Safari").
+_NAME_TERMS = {
+    "saree": ["saree", "sari"], "sari": ["saree", "sari"],
+    "kurti": ["kurti", "kurta"], "kurta": ["kurta", "kurti"],
+    "lehenga": ["lehenga", "lehnga"], "lehnga": ["lehenga", "lehnga"],
+    "tshirt": ["t-shirt", "tshirt"], "t-shirt": ["t-shirt", "tshirt"],
+}
+_COLUMNS = "id,name,category,color,occasion,image_url,price,stock,gender,season,year"
+
+
+def _name_lookup(stem: str, pattern: re.Pattern, *, depth: str = "medium", undertone: str = "neutral",
+                 occasion: str | None = None, gender: str | None = None,
+                 dismissed_item_ids: list[str] | None = None, **_ignored) -> list[dict]:
+    """Every in-stock product whose NAME is this item type, ranked for her
+    skin tone and occasion. Similarity search alone misses most of them: 227
+    kurtis sit among thousands of tops, and colour/style similarity ranks
+    other tops above them, so only 1 surfaced."""
+    from app.db.supabase_client import get_supabase
+    from app.services.fashion.catalog_filters import apply_catalog_filters
+    from app.services.vision.skin_tone import recommended_palette
+
+    sb = get_supabase()
+    rows, seen = [], set()
+    for term in _NAME_TERMS.get(stem, [stem]):
+        data = (sb.table("inventory").select(_COLUMNS).ilike("name", f"%{term}%")
+                .gt("stock", 0).limit(1000).execute().data or [])
+        for r in data:
+            if r["id"] not in seen:
+                seen.add(r["id"])
+                rows.append(r)
+    dismissed = set(dismissed_item_ids or [])
+    rows = [r for r in rows if r["id"] not in dismissed and pattern.search(r.get("name") or "")]
+    rows = apply_catalog_filters(rows, gender)
+
+    palette = [c.lower() for c in recommended_palette(depth, undertone)]
+    exact = re.compile(r"\b" + re.escape(stem) + r"(?:e?s)?\b", re.IGNORECASE)
+
+    def score(r: dict) -> float:
+        sc = 0.0
+        if (r.get("color") or "").lower() in palette:
+            sc += 0.4
+        if occasion and occasion.lower() in [o.lower() for o in (r.get("occasion") or [])]:
+            sc += 0.3
+        if exact.search(r.get("name") or ""):
+            sc += 1.0   # "kurti" asked -> every kurti before any kurta
+        if r.get("image_url"):
+            sc += 0.1
+        return sc
+
+    ranked, names = [], set()
+    for r in sorted(rows, key=score, reverse=True):
+        if r["name"] in names:   # the catalog has duplicate-named rows
+            continue
+        names.add(r["name"])
+        why = []
+        if (r.get("color") or "").lower() in palette:
+            why.append(f"'{r['color']}' complements your {undertone} undertone")
+        if occasion and occasion.lower() in [o.lower() for o in (r.get("occasion") or [])]:
+            why.append(f"right for {occasion}")
+        r["explanation"] = "; ".join(why) or "matches what you asked for"
+        r["similarity"] = round(min(1.0, 0.5 + score(r) / 4), 2)
+        ranked.append(r)
+    return ranked
+
+
 def specific_items(requested: list[str] | None) -> list[str]:
     """The requested words that actually narrow the results."""
     return [w for w in (requested or []) if w.lower() not in _NO_FILTER]
 
 
-def recommend_requested(requested: list[str], per_item: int = 9, **scan_kwargs) -> dict | None:
+def recommend_requested(requested: list[str], per_item: int = 12, **scan_kwargs) -> dict | None:
     """One section per requested item type, containing only that type.
     None when nothing was requested or nothing matched (caller falls back
     to its normal look rather than showing an empty page)."""
@@ -84,9 +150,18 @@ def recommend_requested(requested: list[str], per_item: int = 9, **scan_kwargs) 
     for word in specific_items(requested)[:3]:
         category, pattern, label = _plan(word)
         items = []
+        if pattern is not None:
+            try:
+                items = _name_lookup(_stem(word), pattern, **scan_kwargs)
+            except Exception as e:
+                print(f"[requested_items] name lookup failed, using similarity search: {e}")
         for cat in ([category, None] if category else [None]):
+            if len(items) >= 2:
+                break
             found = recommend_items(category=cat, extra_query_terms=[word], top_k=150, **scan_kwargs)["results"]
-            items = [i for i in found if pattern is None or pattern.search(i.get("name") or "")]
+            matched = [i for i in found if pattern is None or pattern.search(i.get("name") or "")]
+            if len(matched) > len(items):
+                items = matched
             if len(items) >= 2:
                 break
         items = items[:per_item]
