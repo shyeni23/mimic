@@ -36,7 +36,7 @@ def _pre_agent_turn(req: ChatRequest, prior_preferences: dict) -> dict | None:
     on_screen = dict(prior_preferences)
     if state.get("screen_items"):
         on_screen["last_shown"] = state["screen_items"]
-    return (ui_command_turn(req.message, prior_preferences, state)
+    return (ui_command_turn(req.message, prior_preferences, state, req.session_id)
             or closing_turn(req.message)
             # before the shopping rules: "add the first saree" names a garment too
             or item_choice_turn(req.session_id, req.message, on_screen)
@@ -81,7 +81,8 @@ def chat(req: ChatRequest):
     try:
         result = (_pre_agent_turn(req, prior_preferences)
                   or _offline_if_failed(req, run_agent_turn(req.session_id, req.message, history, role=req.role,
-                                                            prior_preferences=prior_preferences),
+                                                            prior_preferences=prior_preferences,
+                                                            client_state=req.client_state),
                                         prior_preferences))
     except Exception as e:
         traceback.print_exc()
@@ -147,6 +148,7 @@ def chat_stream(req: ChatRequest):
             turns = ([("fallback", pre)] if pre else stream_agent_turn(
                 req.session_id, req.message, history,
                 role=req.role, prior_preferences=prior_preferences,
+                client_state=req.client_state,
             ))
             for chunk_type, payload in turns:
                 if chunk_type == "fallback":

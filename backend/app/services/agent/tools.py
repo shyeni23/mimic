@@ -634,7 +634,102 @@ CORE_ACTION_TOOLS = [
 # plus the admin-only tools (admin_update_stock mutates real inventory and
 # deserves its own confirmation-gated design later; admin role keeps its
 # current behavior unchanged for now).
+# ---------------- ACTION tool: any screen control (touchless mirror) ----------------
+# Names/params follow docs/dataset/new_actions.json. The rule-based matcher
+# (ui_commands.py) handles the common phrasings instantly; this tool is the
+# LLM's way to do the same for any other wording.
+_SCREEN_ACTIONS = {
+    "scroll", "scroll_to", "go_back", "go_forward", "stop_speaking", "set_voice_mute",
+    "set_speech_rate", "set_voice_volume", "set_theme", "toggle_sidebar", "set_aria_panel",
+    "set_hands_free", "show_help", "focus_item", "zoom_item_image", "compare_items",
+    "like_item", "unlike_item", "show_liked", "open_cart", "close_cart", "read_cart_summary",
+    "set_cart_quantity", "remove_from_cart", "clear_cart", "clear_liked", "reserve_item",
+    "send_to_fitting_room", "rate_item", "set_category_filter", "set_occasion_filter",
+    "set_department", "set_include_filter", "clear_filters", "search", "clear_search",
+    "load_more", "set_lighting", "flip_camera", "capture_photo", "retake_photo",
+    "dismiss_photo", "set_tryon_zoom",
+}
+# Irreversible: shown as a yes/no banner; the customer's "yes" runs it
+# (ui_commands._confirmation_turn).
+_CONFIRM_FIRST = {
+    "remove_from_cart": "Remove that item from your cart?",
+    "clear_cart": "Empty your whole cart?",
+    "clear_liked": "Remove all your favourites?",
+}
+
+
+@tool
+def screen_action(session_id: str, action: str, params: str = "{}") -> str:
+    """Control the mirror's screen for the customer (it is touchless, so do this for ANY
+    request to scroll, move, open, close, filter, like, change the cart, rate, zoom, etc.).
+    `action` is one of the names below; `params` is a JSON object string.
+    scroll {"direction":"up|down","amount":"small|medium|large"}; scroll_to {"position":"top|bottom"};
+    go_back; go_forward; stop_speaking; set_voice_mute {"muted":true|false};
+    set_speech_rate {"rate":"slow|normal|fast"}; set_voice_volume {"change":"up|down"};
+    set_theme {"mode":"dark|light"}; toggle_sidebar {"state":"open|close"};
+    set_aria_panel {"state":"open|minimize"}; show_help;
+    focus_item {"item_id"}; zoom_item_image {"item_id"}; compare_items {"item_ids":[...]};
+    like_item {"item_id"}; unlike_item {"item_id"}; show_liked; clear_liked;
+    open_cart; close_cart; read_cart_summary {"field":"count|total|items"};
+    set_cart_quantity {"item_id","quantity":N} or {"item_id","delta":1|-1};
+    remove_from_cart {"item_id"}; clear_cart; reserve_item {"item_id","size"};
+    send_to_fitting_room; rate_item {"item_id","stars":1-5} or {"item_id","thumb":"up|down"};
+    set_category_filter {"category":"all|top|bottom|dress|footwear|bag|watch|jewelry|accessory"};
+    set_occasion_filter {"occasion":"all|casual|ethnic|formal|office|party|wedding|..."};
+    set_department {"department":"men|women"}; clear_filters; search {"query"}; clear_search;
+    load_more; set_lighting {"mode":"natural|studio|warm|cool"}; flip_camera; capture_photo;
+    retake_photo; dismiss_photo; set_tryon_zoom {"direction":"in|out"}.
+    Item ids must come from the ON SCREEN / CART lists. remove_from_cart, clear_cart and
+    clear_liked ask the customer to confirm -- tell her to say yes or no."""
+    from app.services.agent.actions import set_pref_update, get_client_state
+    import time
+
+    if action not in _SCREEN_ACTIONS:
+        return json.dumps({"error": f"unknown screen action '{action}'"})
+    try:
+        payload = json.loads(params or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError("params must be a JSON object")
+    except ValueError as e:
+        return json.dumps({"error": f"params must be a JSON object string: {e}"})
+
+    if action in _CONFIRM_FIRST:
+        prompt = _CONFIRM_FIRST[action]
+        set_pref_update("pending_confirmation",
+                        {"type": action, "payload": payload, "prompt": prompt, "at": time.time()})
+        queue_action("show_confirmation", {"prompt": prompt})
+        return json.dumps({"status": "awaiting_yes_or_no", "prompt": prompt})
+
+    state = get_client_state()
+    if action == "read_cart_summary":
+        cart = state.get("cart") or []
+        total = sum(float(i.get("price") or 0) * int(i.get("quantity") or 1) for i in cart)
+        queue_action(action, payload)
+        return json.dumps({"status": "ok", "count": sum(int(i.get("quantity") or 1) for i in cart),
+                           "total_inr": round(total), "items": [i.get("name") for i in cart]})
+    if action in ("reserve_item", "send_to_fitting_room"):
+        # A staff member has to physically do these -- notify the staff screen.
+        if action == "reserve_item":
+            name = next((i.get("name") for i in (state.get("screen_items") or []) + (state.get("cart") or [])
+                         if str(i.get("id")) == str(payload.get("item_id"))), payload.get("item_id"))
+            message = f"Please keep aside: {name}" + (f" (size {payload['size']})" if payload.get("size") else "")
+        else:
+            names = [f"{i.get('name')} x{i.get('quantity', 1)}" for i in state.get("cart") or []]
+            if not names:
+                return json.dumps({"error": "the cart is empty -- nothing to send to the fitting room"})
+            message = "Fitting room request: " + "; ".join(names)
+        row = create_staff_request(session_id, "special_request", message)
+        from app.services.notifications import hub
+        hub.broadcast_sync("staff", {"type": "new_request", "request": row})
+        queue_action(action, payload)
+        return json.dumps({"status": "staff_notified", "message": message})
+
+    queue_action(action, payload)
+    return json.dumps({"status": "done", "action": action})
+
+
 LOOP_TOOLS = CORE_ACTION_TOOLS + [
+    screen_action,
     search_inventory,
     get_body_profile,
     get_color_palette,

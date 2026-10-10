@@ -41,7 +41,11 @@ _COLOUR_RE = re.compile(r"\b(" + "|".join(_COLOURS) + r")\b", re.IGNORECASE)
 
 
 def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "").lower().strip(" .!?,"))
+    t = re.sub(r"\s+", " ", (text or "").lower().strip(" .!?,"))
+    # Politeness and her name don't change the command: "please be quiet aria".
+    t = re.sub(r"^(hey |ok |okay )?(aria[, ]+)?(please |can you |could you |kindly )?", "", t)
+    t = re.sub(r"[, ]+(please|aria|please aria|aria please)$", "", t)
+    return t.strip(" ,")
 
 
 # ---------------------------------------------------------------- items
@@ -160,7 +164,24 @@ def _amount(t: str) -> str:
     return "medium"
 
 
-def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | None) -> dict | None:
+def _notify_staff(session_id: str | None, message: str) -> None:
+    """Reserve / fitting-room requests need a person -- push to the staff screen."""
+    if not session_id:
+        return
+    try:
+        from app.db.supabase_client import create_staff_request
+        from app.services.notifications import hub
+        row = create_staff_request(session_id, "special_request", message)
+        hub.broadcast_sync("staff", {"type": "new_request", "request": row})
+    except Exception as e:
+        print(f"[ui_commands] staff notification failed (non-fatal): {e}")
+
+
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | None,
+                    session_id: str | None = None) -> dict | None:
     """A recognised screen command -> its turn result; None to let the
     shopping rules or the LLM handle the message."""
     t = _norm(text)
@@ -182,8 +203,21 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
     liked = st.get("liked") or []
 
     # --- voice & assistant control
-    if re.fullmatch(r"(please )?(stop|stop talking|stop speaking|be quiet|quiet|shut up|chup|chup ho jao|bas|enough|ruko)", t):
+    if re.fullmatch(r"(please )?(stop|stop it|stop talking|stop speaking|be quiet|quiet|shut up|sh+|chup|chup ho jao|bas|enough|enough talking|ruko)", t):
         return _turn("", [("stop_speaking", {})], prefs)
+    if re.search(r"\b(can'?t|cannot|can not) hear\b", t):
+        return _turn("Is this better?", [("set_voice_volume", {"change": "up"})], prefs)
+    if re.search(r"\b(speak|talk|say it|voice)\b", t) or re.search(r"\b(volume|louder|quieter|slower|faster)\b", t):
+        if re.search(r"\b(slow(er|ly)?|dheere)\b", t):
+            return _turn("Okay, I'll speak more slowly.", [("set_speech_rate", {"rate": "slow"})], prefs)
+        if re.search(r"\b(fast(er)?|quick(er|ly)?|jaldi)\b", t):
+            return _turn("Okay, a little faster.", [("set_speech_rate", {"rate": "fast"})], prefs)
+        if re.search(r"\bnormal (speed|pace)\b", t):
+            return _turn("Back to normal speed.", [("set_speech_rate", {"rate": "normal"})], prefs)
+        if re.search(r"\b(louder|speak up|volume up|increase( the)? volume|zor se)\b", t):
+            return _turn("Is this better?", [("set_voice_volume", {"change": "up"})], prefs)
+        if re.search(r"\b(quieter|softer|lower( your)? voice|volume down|decrease( the)? volume|dheere bolo)\b", t):
+            return _turn("I'll speak more softly.", [("set_voice_volume", {"change": "down"})], prefs)
     if re.search(r"\b(unmute|voice on|speak again|talk again|awaaz (chalu|on))\b", t):
         return _turn("Voice is back on.", [("set_voice_mute", {"muted": False})], prefs)
     if re.search(r"\b(mute|text only|don'?t speak|no voice|awaaz band|silent mode)\b", t):
@@ -191,10 +225,13 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
     if re.search(r"\b(help|what can i say|what can you do|commands|kya bol sakte)\b", t) and len(t.split()) <= 7:
         return _turn("You can say things like 'show me sarees', 'like the second one', or 'add this to cart'.",
                      [("show_help", {"screen": page})], prefs)
-    if re.search(r"\b(dark mode|dark theme|night mode)\b", t):
+    if re.search(r"\b(dark mode|dark theme|night mode)\b", t) or \
+            (re.search(r"\b(dark|darker)\b", t) and re.search(r"\b(make|turn|switch|screen|display|mode|theme)\b", t)):
         return _turn("Switched to dark mode.", [("set_theme", {"mode": "dark"})], prefs)
     if re.search(r"\b(light mode|light theme|day mode|bright mode)\b", t):
         return _turn("Switched to light mode.", [("set_theme", {"mode": "light"})], prefs)
+    if re.fullmatch(r"(please )?close( it| this| that| the (picture|photo|image|comparison))?( please)?|band karo", t):
+        return _turn("", [("close_item_detail", {}), ("close_cart", {})], prefs)
     if re.search(r"\b(open|show)( the)? (menu|sidebar)\b", t):
         return _turn("Menu is open. Which page would you like?", [("toggle_sidebar", {"state": "open"})], prefs)
     if re.search(r"\b(close|hide)( the)? (menu|sidebar)\b", t):
@@ -215,7 +252,7 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
     if (re.search(_move + r".*\b(top|start)( of (the )?page)?$", t) or re.search(r"sabse upar|upar tak", t)) \
             and len(t.split()) <= 7:
         return _turn("Back to the top.", [("scroll_to", {"position": "top"})], prefs)
-    if (re.search(_move + r".*\b(bottom|end)( of (the )?page)?$", t) or re.search(r"sabse neeche|neeche tak", t)) \
+    if (re.search(_move + r".*\b(bottom|end)( of (the )?page)?$", t) or re.search(r"sabse neeche|neeche tak|all the way down", t)) \
             and len(t.split()) <= 7:
         return _turn("All the way down.", [("scroll_to", {"position": "bottom"})], prefs)
     if re.search(r"\b(scroll|move|go)?\s*(down|neeche|niche|downward)\b", t) and len(t.split()) <= 7 \
@@ -224,8 +261,18 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
     if re.search(r"\b(scroll|move|go)?\s*(up|upar|upwards?)\b", t) and len(t.split()) <= 7 \
             and re.search(r"\b(scroll|upar|upwards?|^up$|move up|go up)\b", t):
         return _turn("Scrolling up.", [("scroll", {"direction": "up", "amount": _amount(t)})], prefs)
-    if re.fullmatch(r"(go )?back|(go to the )?previous (page|screen)|peeche( jao| chalo)?|wapas( jao)?|go back please", t):
+    if re.search(r"\b(lower|below|further down|keep scrolling|scroll more)\b", t) and \
+            re.search(r"\b(page|scroll|move|show|go|see|down)\b", t) and len(t.split()) <= 10:
+        return _turn("Scrolling down.", [("scroll", {"direction": "down", "amount": _amount(t)})], prefs)
+    if re.search(r"\b(higher|above|further up)\b", t) and \
+            re.search(r"\b(page|scroll|move|show|go|see|up)\b", t) and len(t.split()) <= 10:
+        return _turn("Scrolling up.", [("scroll", {"direction": "up", "amount": _amount(t)})], prefs)
+    if re.fullmatch(r"(please )?(go )?back( please)?|(go to the )?previous (page|screen)|peeche( jao| chalo)?|wapas( jao)?", t) or \
+            re.search(r"\b(take me back|go back|return to the previous|back to the previous|previous (page|screen))\b", t) \
+            and not re.search(r"\bback to (the )?(shopping|home|dashboard|recommendations|profile|cart)\b", t):
         return _turn("Going back.", [("go_back", {})], prefs)
+    if re.search(r"\b(go home|take me home|home (page|screen)|main (page|screen)|ghar)\b", t) and len(t.split()) <= 6:
+        return _turn("Sure, opening it now.", [("navigate", {"page": "dashboard"})], prefs)
     if re.fullmatch(r"(go )?forward|next (page|screen)|aage( jao| chalo)?", t) and page not in ("shopping",):
         return _turn("Going forward.", [("go_forward", {})], prefs)
     if re.search(r"\b(show|load|see) more\b|\bmore options\b|\baur dikhao\b|^next page$", t) and page in ("shopping", "recommendations"):
@@ -240,13 +287,39 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         return _turn("Sure, opening it now.", [("navigate", {"page": target})], prefs)
 
     # --- cart
+    # "put the first one in my bag" / "add this to cart" / "isko cart mein daal do" --
+    # "bag" here is the shopping bag, not handbags.
+    if re.search(r"\b(add|put|keep|daal|daalo|dal|rakh|rakho)\b", t) and \
+            re.search(r"\b(cart|bag|basket|fitting room|trial room)\b", t):
+        item = _resolve(t, screen, highlighted)
+        if item:
+            prefs.pop("pending_item", None)
+            return _turn(f"Done! I've added the {item.get('name')} to your fitting room. "
+                         f"Would you like heels or a clutch to go with it?",
+                         [("add_to_cart", {"item_id": item["id"], "item": item})], prefs)
+    if re.search(r"\b(send|take|move)\b.*\b(fitting|trial|changing) room\b|\bi want to try (these|them|it) on\b", t):
+        if not cart:
+            return _turn("Your cart is empty. Add something first and I'll send it to the fitting room.", [], prefs)
+        names = "; ".join(f"{i.get('name')} x{i.get('quantity', 1)}" for i in cart)
+        _notify_staff(session_id, f"Fitting room request: {names}")
+        return _turn("Done! A staff member will bring these to a fitting room for you.",
+                     [("send_to_fitting_room", {})], prefs)
+    if (re.search(r"\b(reserve|hold)\b", t) or re.search(r"\bkeep\b.*\baside\b", t)) and (_ORDINAL_RE.search(t) or _DEICTIC_RE.search(t) or _COLOUR_RE.search(t)):
+        item = _resolve(t, screen, highlighted) or _resolve(t, cart, highlighted)
+        if item:
+            size = re.search(r"\b(xs|s|m|l|xl|xxl|small|medium|large|extra large)\b", t)
+            msg = f"Please keep aside: {item.get('name')}" + (f" (size {size.group(1).upper()})" if size else "")
+            _notify_staff(session_id, msg)
+            return _turn(f"Reserved! A staff member will keep the {item.get('name')} aside for you.",
+                         [("reserve_item", {"item_id": item["id"], "size": size.group(1) if size else None})], prefs)
     if re.search(r"\b(empty|clear)( out)?( my| the)? (cart|bag|fitting room)\b|\bcart khaali\b", t):
         if not cart:
             return _turn("Your cart is already empty.", [], prefs)
         return _ask_confirmation("Empty your whole cart?", ("clear_cart", {}), prefs)
-    if re.search(r"\b(remove|delete|take out|hata(o| do)?|nikal(o| do)?)\b", t) and \
-            (re.search(r"\b(cart|bag|fitting room)\b", t) or _ORDINAL_RE.search(t) or _DEICTIC_RE.search(t)) \
-            and not re.search(r"\b(favou?rites?|liked|wishlist|filter)\b", t):
+    if re.search(r"\b(remove|delete|take out|get rid of|throw( away| out)?|hata(o| do)?|nikal(o| do)?)\b", t) and \
+            (re.search(r"\b(cart|bag|fitting room)\b", t) or _ORDINAL_RE.search(t) or _DEICTIC_RE.search(t)
+             or (cart and _cart_item(t, st))) \
+            and not re.search(r"\b(favou?rites?|liked|likes|wishlist|filters?|search|photo|picture)\b", t):
         if not cart:
             return _turn("Your cart is empty right now.", [], prefs)
         item = _cart_item(t, st)
@@ -274,8 +347,9 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         n = sum(int(i.get("quantity") or 1) for i in cart)
         return _turn(f"You have {n} item{'s' if n != 1 else ''} in your cart." if n else "Your cart is empty.",
                      [("read_cart_summary", {"field": "count"})] if n else [], prefs)
-    if re.search(r"\b(total|how much (is it|does it come|altogether|in total)|kitna hua|bill)\b", t) and \
-            re.search(r"\b(total|cart|altogether|kitna|bill|in total)\b", t):
+    if re.search(r"\b(total|how much (is it|does it come|altogether|in total|do i (have to |need to )?pay|do i owe)|kitna hua|bill)\b"
+                 r"|\bwhat does (it|everything|this)( all)? cost\b|\bhow much does (it|everything)( all)? cost\b", t) and \
+            re.search(r"\b(total|cart|altogether|kitna|bill|in total|pay|owe|cost)\b", t):
         total = sum(float(i.get("price") or 0) * int(i.get("quantity") or 1) for i in cart)
         if not cart:
             return _turn("Your cart is empty.", [], prefs)
@@ -283,7 +357,8 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
                      [("read_cart_summary", {"field": "total"})], prefs)
     if re.search(r"\b(close|hide)( the| my)? (cart|bag)\b", t):
         return _turn("Cart closed.", [("close_cart", {})], prefs)
-    if re.search(r"\b(show|open|see|view|check|go to)( me)?( my| the)? (cart|bag|fitting room)\b|\bcart (dikhao|kholo)\b", t):
+    if re.search(r"\b(show|open|see|view|check|go to)( me)?( my| the)? (cart|bag|fitting room)\b|\bcart (dikhao|kholo)\b"
+                 r"|\bwhat'?s in (my|the) (cart|bag)\b|\bwhat (have i|did i) (added|add|pick(ed)?)\b", t):
         n = sum(int(i.get("quantity") or 1) for i in cart)
         reply = f"Here's your cart, {n} item{'s' if n != 1 else ''}." if n else \
             "Your cart is empty right now. Want some suggestions?"
@@ -294,19 +369,20 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         if not liked:
             return _turn("Your favourites list is already empty.", [], prefs)
         return _ask_confirmation("Remove all your favourites?", ("clear_liked", {}), prefs)
-    if re.search(r"\b(show|open|see|view)( me)?( my)? (favou?rites|likes|liked( items| list)?|wishlist|saved( items)?)\b|\bpasand wale\b", t):
+    if re.search(r"\b(show|open|see|view|take me to|go to)( me)?( my)? (favou?rites|likes|liked( items| list)?|wishlist|saved( items)?)\b|\bpasand wale\b", t):
         if not liked:
             return _turn("You haven't liked anything yet. Just say 'like this one' when something catches your eye.", [], prefs)
         n = len(liked)
         return _turn(f"Here {'is your favourite' if n == 1 else f'are your {n} favourites'}.",
                      [("show_liked", {})], prefs)
-    if re.search(r"\b(unlike|un-?favou?rite|remove from (my )?(favou?rites|wishlist|likes)|don'?t like)\b", t):
+    if re.search(r"\b(unlike|un-?favou?rite|don'?t like)\b", t) or \
+            re.search(r"\b(remove|delete|take out|take off)\b.*\b(favou?rites?|wishlist|likes|liked)\b", t):
         item = _resolve(t, liked, highlighted) or _resolve(t, screen, highlighted)
         if item and any(str(i.get("id")) == str(item["id"]) for i in liked):
             return _turn("Removed from favourites.", [("unlike_item", {"item_id": item["id"]})], prefs)
         if item:
             return _turn("That one isn't in your favourites.", [], prefs)
-    if re.search(r"\b(like|love|favou?rite|save|heart|pasand)\b", t) and \
+    if re.search(r"\b(like|love|favou?rites?|save|heart|pasand)\b", t) and \
             (_ORDINAL_RE.search(t) or _DEICTIC_RE.search(t) or _COLOUR_RE.search(t)) and \
             not re.search(r"\b(would like|i'?d like|like to|looking for|show me)\b", t):
         item = _resolve(t, screen, highlighted)
@@ -368,5 +444,34 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         if re.search(r"\bzoom (in|out)\b", t):
             d = "out" if "zoom out" in t else "in"
             return _turn(f"Zoomed {d}.", [("set_tryon_zoom", {"direction": d})], prefs)
+
+    # --- rate / compare / enlarge an item
+    stars = re.search(r"\b([1-5]|one|two|three|four|five) stars?\b", t)
+    if stars or re.search(r"\bthumbs? (up|down)\b", t):
+        item = _resolve(t, screen, highlighted) or (
+            next((i for i in screen if str(i.get("id")) == highlighted), None) if highlighted else None)
+        if item:
+            if stars:
+                n = int(_NUM_WORDS.get(stars.group(1), stars.group(1)))
+                return _turn(f"Thanks! {n} star{'s' if n != 1 else ''} for the {item.get('name')}.",
+                             [("rate_item", {"item_id": item["id"], "stars": n})], prefs)
+            thumb = "up" if "up" in t else "down"
+            return _turn("Thanks for the feedback!" if thumb == "up" else "Got it, I'll show fewer like that.",
+                         [("rate_item", {"item_id": item["id"], "thumb": thumb})], prefs)
+    if re.search(r"\bcompare\b", t) and screen:
+        if re.search(r"\b(first|top) two\b|\bfirst (and|&) second\b", t):
+            pair = screen[:2]
+        else:
+            refs = [m.group(0) for m in _ORDINAL_RE.finditer(t)]
+            pair = [x for x in (_resolve(r, screen) for r in refs) if x][:2]
+        if len(pair) == 2:
+            return _turn(f"Here they are side by side: the {pair[0].get('name')} and the {pair[1].get('name')}.",
+                         [("compare_items", {"item_ids": [pair[0]["id"], pair[1]["id"]]})], prefs)
+    if re.search(r"\b(zoom (in )?on|enlarge|show (it|this|that) bigger|bigger (photo|picture|image)|close ?up)\b", t):
+        item = _resolve(t, screen, highlighted) or (
+            next((i for i in screen if str(i.get("id")) == highlighted), None) if highlighted else None)
+        if item:
+            return _turn(f"Here's a closer look at the {item.get('name')}.",
+                         [("zoom_item_image", {"item_id": item["id"]})], prefs)
 
     return None

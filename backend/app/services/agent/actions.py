@@ -82,9 +82,39 @@ ActionType = Literal[
 _action_queue: contextvars.ContextVar[list] = contextvars.ContextVar("action_queue", default=None)
 
 
+# Preference changes a tool makes this turn (e.g. a pending yes/no
+# confirmation from screen_action), merged into the turn's preferences by
+# run_agent_turn.
+_pref_updates: contextvars.ContextVar[dict] = contextvars.ContextVar("pref_updates", default=None)
+# The customer's screen this turn (page, on-screen items, cart, liked) -- see
+# routers/chat.py; lets tools such as screen_action read the cart.
+_client_state: contextvars.ContextVar[dict] = contextvars.ContextVar("client_state", default=None)
+
+
 def start_turn():
     """Call once at the start of each agent turn to reset the queue."""
     _action_queue.set([])
+    _pref_updates.set({})
+
+
+def set_pref_update(key: str, value) -> None:
+    updates = _pref_updates.get()
+    if updates is None:
+        updates = {}
+        _pref_updates.set(updates)
+    updates[key] = value
+
+
+def get_pref_updates() -> dict:
+    return _pref_updates.get() or {}
+
+
+def set_client_state(state: dict | None) -> None:
+    _client_state.set(state or {})
+
+
+def get_client_state() -> dict:
+    return _client_state.get() or {}
 
 
 def queue_action(action_type: ActionType, payload: dict | None = None):

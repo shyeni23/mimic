@@ -7,7 +7,7 @@ import BottomNav from '../components/Navbar/BottomNav';
 import Toast from '../components/Common/Toast';
 import { useIsTablet } from '../hooks/useMediaQuery';
 import { useSession } from '../context/SessionContext';
-import { useAriaAction } from '../utils/ariaBus';
+import { useAriaAction, setVoiceOverlayOpen } from '../utils/ariaBus';
 import './MainLayout.css';
 
 // Shown for "help" / "what can I say?" -- the mirror is touchless, so the
@@ -35,9 +35,18 @@ export default function MainLayout() {
   // viewport froze the entire app (chat input, buttons, everything) behind
   // an invisible full-page overlay.
   const isCompact = useIsTablet();
-  const { toasts, dismissToast } = useSession();
+  const { toasts, dismissToast, getItem } = useSession();
   const [confirmPrompt, setConfirmPrompt] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  // "Zoom in on it" (one item) / "compare the first two" (two items).
+  const [viewerItems, setViewerItems] = useState(null);
+  useEffect(() => setVoiceOverlayOpen(!!viewerItems), [viewerItems]);
+
+  useAriaAction(['zoom_item_image', 'compare_items', 'close_item_detail'], (payload, type) => {
+    if (type === 'close_item_detail') setViewerItems(null);
+    else if (type === 'zoom_item_image') setViewerItems([getItem(payload.item_id)]);
+    else setViewerItems((payload.item_ids || []).slice(0, 2).map((id) => getItem(id)));
+  });
 
   useAriaAction(['toggle_sidebar', 'show_confirmation', 'hide_confirmation', 'show_help'], (payload, type) => {
     if (type === 'toggle_sidebar') {
@@ -91,6 +100,27 @@ export default function MainLayout() {
           >
             <p>{confirmPrompt}</p>
             <span>Say <strong>"yes"</strong> or <strong>"no"</strong></span>
+          </motion.div>
+        )}
+        {viewerItems && (
+          <motion.div
+            className="voice-item-viewer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setViewerItems(null)}
+          >
+            {viewerItems.map((it) => (
+              <figure key={it.id}>
+                {it.image_url ? <img src={it.image_url} alt={it.name} /> : <div className="voice-item-noimg" />}
+                <figcaption>
+                  <strong>{it.name}</strong>
+                  {it.price ? <span>₹{Number(it.price).toLocaleString()}</span> : null}
+                  {it.color ? <span>{it.color}</span> : null}
+                </figcaption>
+              </figure>
+            ))}
+            <p className="voice-item-hint">Say "close" or "go back" to return</p>
           </motion.div>
         )}
         {helpOpen && (

@@ -278,9 +278,13 @@ class ToolCall(BaseModel):
         "complete_outfit", "show_item_detail", "explain_recommendation",
         "add_item_to_cart", "start_virtual_tryon",
         "request_staff_assistance", "search_inventory", "get_body_profile",
-        "get_color_palette", "get_weather",
+        "get_color_palette", "get_weather", "screen_action",
     ]] = PydanticField(default=None, description=(
         "The ONE tool to call this step, or null if none is needed."))
+    ui_action: Optional[str] = PydanticField(
+        default=None, description="For tool_name='screen_action': the action name, e.g. 'scroll'.")
+    ui_params: Optional[str] = PydanticField(
+        default=None, description="For tool_name='screen_action': JSON object string, e.g. '{\"direction\":\"down\"}'.")
     page: Optional[Literal[
         "dashboard", "body-scanner", "analysis-results", "recommendations",
         "stylist", "outfit-builder", "virtual-tryon", "personalization",
@@ -362,6 +366,27 @@ def _tool_catalog_prompt_block() -> str:
     return "\n".join(lines)
 
 
+def _screen_state_block(client_state: dict | None) -> str:
+    """What the customer is looking at right now, so the model can resolve
+    "the second one", "this one", "remove the saree from my cart"."""
+    st = client_state or {}
+    if not st:
+        return ""
+    lines = [f"\n\nON SCREEN NOW (page: {st.get('page') or 'unknown'}):"]
+    items = st.get("screen_items") or []
+    if items:
+        lines.append("Items in display order -- 'the first one' = #1:")
+        for n, i in enumerate(items[:20], 1):
+            mark = "  <- highlighted ('this one')" if str(i.get("id")) == str(st.get("highlighted_item_id")) else ""
+            lines.append(f"#{n} {i.get('name')} ({i.get('color') or 'no color'}) [id: {i.get('id')}]{mark}")
+    cart = st.get("cart") or []
+    lines.append("CART: " + ("; ".join(f"{i.get('name')} x{i.get('quantity', 1)} [id: {i.get('id')}]" for i in cart)
+                             if cart else "empty"))
+    liked = st.get("liked") or []
+    lines.append("LIKED: " + ("; ".join(f"{i.get('name')} [id: {i.get('id')}]" for i in liked) if liked else "none"))
+    return "\n".join(lines)
+
+
 def _build_tool_args(tool_name: str, call: ToolCall, session_id: str) -> dict:
     """Builds this tool's arguments from the ToolCall fields actually relevant
     to tool_name -- never blindly passing every field on ToolCall through."""
@@ -380,6 +405,8 @@ def _build_tool_args(tool_name: str, call: ToolCall, session_id: str) -> dict:
         args = {"reason": call.reason or "other", "message": call.message or ""}
     elif tool_name == "get_color_palette":
         args = {"skin_depth": call.skin_depth or "", "undertone": call.undertone or ""}
+    elif tool_name == "screen_action":
+        args = {"action": call.ui_action or "", "params": call.ui_params or "{}"}
     else:  # trigger_body_scan, get_body_profile -- no model-supplied args beyond session_id
         args = {}
 
@@ -436,6 +463,19 @@ def _execute_tool_call(
                 "error": "no such item_id was shown to the customer this conversation",
                 "instruction": "Never invent an item_id -- search_inventory or recommend_clothes "
                                 "first to get real ids, or ask the customer which item they mean.",
+            })
+
+    if tool_name == "screen_action":
+        try:
+            params = json.loads(call.ui_params or "{}")
+        except ValueError:
+            params = {}
+        ids = [params.get("item_id")] + list(params.get("item_ids") or []) if isinstance(params, dict) else []
+        bad = [i for i in ids if i and str(i) not in shown_item_ids]
+        if bad:
+            return json.dumps({
+                "error": f"item id(s) {bad} are not on the customer's screen or in her cart",
+                "instruction": "Use an id from the ON SCREEN or CART lists, or ask which item she means.",
             })
 
     args = _build_tool_args(tool_name, call, session_id)
@@ -552,6 +592,11 @@ _ACTION_KEYWORDS = re.compile(
     r"|office|work|meeting|interview|formal|casual|ethnic|traditional|festival|diwali"
     r"|puja|pooja|eid|date|dinner|travel|trip|vacation|holiday|gym|sports?|college|function"
     r"|clothes|clothing|accessor(?:y|ies)|jewell?ery|heels?|footwear"
+    # Screen controls -- the mirror is touchless, so these must reach the
+    # screen_action tool (the fast path would just say "done!").
+    r"|scroll|page|screen|lower|higher|below|above|back|previous|next|menu|theme|dark"
+    r"|zoom|bigger|enlarge|compare|rate|stars?|reserve|favou?rites?|wishlist|filter|camera|photo"
+    r"|slower|faster|louder|quieter|volume|mute|shh|quiet|stop|close|open|remove|delete|total|pay"
     # Style refinements ("maybe something softer", "not so heavy", "I prefer
     # cotton") are preferences too, so they need the structured path or the
     # fast path silently drops them from conversation_state.
@@ -832,6 +877,7 @@ def stream_agent_turn(
     history: list[dict],
     role: str = "customer",
     prior_preferences: dict | None = None,
+    client_state: dict | None = None,
 ):
     """Streaming variant of run_agent_turn for chat-only turns.
 
@@ -860,7 +906,7 @@ def stream_agent_turn(
     # system prompts (see bug note below).
     if _looks_like_action(user_text, windowed_history):
         result = run_agent_turn(session_id, user_text, history, role=role,
-                                prior_preferences=prior_preferences)
+                                prior_preferences=prior_preferences, client_state=client_state)
         yield "fallback", result
         return
 
@@ -911,14 +957,14 @@ def stream_agent_turn(
             # Nothing shown yet (fast model's quota exhausted, bad key...):
             # answer on the structured path instead of apologising.
             yield "fallback", run_agent_turn(session_id, user_text, history, role=role,
-                                             prior_preferences=prior_preferences,
+                                             prior_preferences=prior_preferences, client_state=client_state,
                                              allow_fast_path=False)
         return
 
     if leaked:
         print("[stream-fast] detected JSON/tool-call leak mid-stream, re-routing to structured path")
         result = run_agent_turn(session_id, user_text, history, role=role,
-                                prior_preferences=prior_preferences, allow_fast_path=False)
+                                prior_preferences=prior_preferences, client_state=client_state, allow_fast_path=False)
         yield "fallback", result
         return
 
@@ -934,6 +980,7 @@ def run_agent_turn(
     prior_preferences: dict | None = None,
     *,
     allow_fast_path: bool = True,
+    client_state: dict | None = None,
 ) -> dict:
     """
     allow_fast_path=False: stream_agent_turn already tried the fast model for
@@ -1008,6 +1055,7 @@ def run_agent_turn(
                 "\nAsk only about information that is still MISSING."
             )
     system_prompt += _tool_catalog_prompt_block()
+    system_prompt += _screen_state_block(client_state)
     system_prompt += _cart_context_block(session_id)
     system_prompt += _recent_shown_items_block(session_id)
     liked_item = _last_liked_item(history)
@@ -1036,6 +1084,11 @@ def run_agent_turn(
         print(f"[cross-turn-recall] failed to seed shown_item_ids (non-fatal): {e}")
     if liked_item:
         shown_item_ids.add(str(liked_item["id"]))
+    # Everything on her screen, in her cart or liked is fair game too.
+    for key in ("screen_items", "cart", "liked"):
+        shown_item_ids |= {str(i.get("id")) for i in (client_state or {}).get(key) or [] if i.get("id")}
+    from app.services.agent.actions import set_client_state, get_pref_updates
+    set_client_state(client_state)
     executed_calls: dict = {}
     llm_configured = True
     llm_failed = False
@@ -1107,6 +1160,7 @@ def run_agent_turn(
         llm_failed = True
 
     updated_preferences = merge_preferences(prior_preferences, turn_delta)
+    updated_preferences.update(get_pref_updates())   # e.g. a pending yes/no from screen_action
     actions = get_queued_actions() if llm_configured else []
 
     return {

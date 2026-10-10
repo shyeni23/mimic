@@ -5,7 +5,8 @@ import { useTheme } from './ThemeContext';
 import { useAuth } from './AuthContext';
 import { PresenceState } from '../hooks/usePersonPresence';
 import { apiPostJSON, apiPost, API_BASE_URL } from '../utils/api';
-import { emitAriaAction } from '../utils/ariaBus';
+import { emitAriaAction, isVoiceOverlayOpen } from '../utils/ariaBus';
+import { logEventNow } from '../hooks/useEventLogger';
 
 // "off" disables spoken replies (see playTTS). Anything else = voice on.
 const ARIA_VOICE_ENABLED = (process.env.REACT_APP_ARIA_VOICE || 'on').toLowerCase() !== 'off';
@@ -66,6 +67,9 @@ export function VoiceAgentProvider({ children }) {
   const { theme, toggleTheme } = useTheme();
   // "Mute your voice" -- replies still appear as text on screen.
   const voiceMutedRef = useRef(false);
+  // "Talk slower" / "speak louder".
+  const speechRateRef = useRef(1);
+  const voiceVolumeRef = useRef(1);
   const { logout } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -116,6 +120,8 @@ export function VoiceAgentProvider({ children }) {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.playbackRate = speechRateRef.current;
+      audio.volume = voiceVolumeRef.current;
       currentAudioRef.current = audio;
       audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); currentAudioRef.current = null; };
       audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(url); currentAudioRef.current = null; };
@@ -153,7 +159,8 @@ export function VoiceAgentProvider({ children }) {
           navigate(`/${routeFor(p.page)}`);
           break;
         case 'go_back':
-          navigate(-1);
+          if (isVoiceOverlayOpen()) emitAriaAction({ type: 'close_item_detail', payload: {} });
+          else navigate(-1);
           break;
         case 'go_forward':
           navigate(1);
@@ -183,6 +190,32 @@ export function VoiceAgentProvider({ children }) {
             currentAudioRef.current = null;
             setIsSpeaking(false);
           }
+          break;
+        case 'set_speech_rate':
+          speechRateRef.current = { slow: 0.85, normal: 1, fast: 1.2 }[p.rate] || 1;
+          break;
+        case 'set_voice_volume':
+          voiceVolumeRef.current = Math.min(1, Math.max(0.2,
+            p.level != null ? Number(p.level) : voiceVolumeRef.current + (p.change === 'down' ? -0.25 : 0.25)));
+          if (currentAudioRef.current) currentAudioRef.current.volume = voiceVolumeRef.current;
+          break;
+        case 'rate_item':
+          logEventNow(sessionId, p.item_id, p.thumb === 'down' ? 'dismiss' : 'click', {
+            source: 'voice', action: 'rate', stars: p.stars ?? null, thumb: p.thumb ?? null,
+          });
+          showToast(p.stars ? `Rated ${p.stars} star${p.stars === 1 ? '' : 's'}` : 'Thanks for the feedback', 'success');
+          break;
+        case 'reserve_item':
+          logEventNow(sessionId, p.item_id, 'click', { source: 'voice', action: 'reserve', size: p.size ?? null });
+          showToast('Reserved -- a staff member will keep it aside', 'success');
+          break;
+        case 'send_to_fitting_room':
+          showToast('A staff member will bring your items to a fitting room', 'success');
+          break;
+        case 'zoom_item_image':
+        case 'compare_items':
+        case 'close_item_detail':
+          emitAriaAction(action);   // MainLayout shows the enlarged / side-by-side view
           break;
         case 'set_theme':
           if (p.mode && p.mode !== theme) toggleTheme();
@@ -293,7 +326,7 @@ export function VoiceAgentProvider({ children }) {
     }
   }, [navigate, location.pathname, setPendingRecommendations, setHighlightedItemId, addToCart, removeFromCart,
       setCartQuantity, clearCart, setCartOpen, likeItem, unlikeItem, clearLiked, registerItems,
-      queueOutfitActions, showToast, theme, toggleTheme, logout]);
+      queueOutfitActions, showToast, theme, toggleTheme, logout, sessionId]);
 
   // What's on the customer's screen, sent with every message so Aria can
   // resolve "remove the second item from my cart", "this one", cart totals

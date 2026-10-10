@@ -40,7 +40,7 @@ def test_command_maps_to_action(text, expected):
 
 @pytest.mark.parametrize("text", [
     "show me a top", "I am looking for saree", "something for a wedding", "hi how are you",
-    "show me a bottom for office", "add the first one to my cart", "yes", "thanks",
+    "show me a bottom for office", "yes", "thanks",
 ])
 def test_not_a_screen_command(text):
     assert actions(text) is None, f"{text!r} should be left to the shopping rules / LLM"
@@ -85,3 +85,27 @@ def test_cart_total_and_count():
 def test_settings_refused_for_customers():
     r = ui_command_turn("open settings", {}, STATE)
     assert r["actions"] == [] and "staff" in r["reply"].lower()
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("can you move the page a bit lower", "scroll"), ("take me back", "go_back"), ("go home", "navigate"),
+    ("put the first one in my bag", "add_to_cart"), ("add this to cart", "add_to_cart"),
+    ("isko cart mein daal do", "add_to_cart"), ("get rid of that", "open_cart"),  # 'that' isn't in the cart -> asks which
+    ("how much do i have to pay", "read_cart_summary"), ("shh", "stop_speaking"),
+    ("talk slower", "set_speech_rate"), ("speak louder", "set_voice_volume"),
+    ("make the screen dark", "set_theme"), ("compare the first two", "compare_items"),
+    ("rate this five stars", "rate_item"), ("zoom in on it", "zoom_item_image"), ("close", "close_item_detail"),
+])
+def test_more_natural_phrasings(text, expected):
+    got = actions(text)
+    assert got and expected in [a for a, _ in got], f"{text!r} -> {got}"
+
+
+def test_in_my_bag_is_not_a_handbag_request():
+    from app.services.agent.shopping_intent import parse_shopping_request
+    assert parse_shopping_request("put the first one in my bag") is None
+    assert parse_shopping_request("show me a black bag") is not None
+
+
+def test_softer_style_is_not_a_volume_command():
+    assert actions("maybe something softer") is None

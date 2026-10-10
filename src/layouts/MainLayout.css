@@ -84,3 +84,49 @@
   line-height: 1.9;
   font-size: 1.05rem;
 }
+
+/* "Zoom in on it" / "compare the first two" -- full-screen, readable from a distance. */
+.voice-item-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px 16px;
+  background: rgba(8, 8, 20, 0.86);
+  backdrop-filter: blur(8px);
+  overflow-y: auto;
+}
+.voice-item-viewer figure {
+  margin: 0;
+  width: min(420px, 90vw);
+  text-align: center;
+  color: #fff;
+}
+.voice-item-viewer img,
+.voice-item-noimg {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 16px;
+  background: #fff;
+}
+.voice-item-noimg {
+  height: 50vh;
+}
+.voice-item-viewer figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 1.05rem;
+}
+.voice-item-hint {
+  width: 100%;
+  text-align: center;
+  color: #c9c9d9;
+  margin: 0;
+}

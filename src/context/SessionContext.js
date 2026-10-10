@@ -257,6 +257,7 @@ export function SessionProvider({ children }) {
         cart, addToCart, removeFromCart, setCartQuantity, clearCart, cartOpen, setCartOpen,
         liked, likeItem, unlikeItem, clearLiked, registerItems,
         screenItems, setScreenItems,
+        getItem: resolveItem,
         pendingOutfitActions, queueOutfitActions, consumeOutfitActions,
         toasts, showToast, dismissToast,
         fireAgentEvent, registerVoiceCallbacks,

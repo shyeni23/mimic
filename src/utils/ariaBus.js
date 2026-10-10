@@ -40,3 +40,9 @@ export function useAriaAction(types, handler) {
     return () => window.removeEventListener(EVENT, onEvent);
   }, [key]);
 }
+
+// Whether a full-screen voice overlay (enlarged item / comparison) is open --
+// "go back" closes it instead of leaving the page.
+let overlayOpen = false;
+export const setVoiceOverlayOpen = (open) => { overlayOpen = !!open; };
+export const isVoiceOverlayOpen = () => overlayOpen;

@@ -44,6 +44,11 @@ _OCCASION_RE = re.compile(
     r"|puja|pooja|date|dinner|travel|trip|vacation|holiday|gym|sports?|college|function|brunch|beach)\b",
     re.IGNORECASE,
 )
+_IN_MY_BAG_RE = re.compile(r"\b(in|into|to)\s+(my|the)\s+(bag|cart|basket)\b", re.IGNORECASE)
+_NOT_SHOPPING_RE = re.compile(
+    r"\b(cart|basket|quantity|favou?rites?|wishlist|filters?|scroll|out of my|from my|"
+    r"remove|delete|throw|reserve|keep (it |this |that |the [a-z ]+ )?aside|stars?|compare|zoom)\b",
+    re.IGNORECASE)
 _CLOSING_RE = re.compile(
     r"\b(thanks?|thank\s*(?:you|u)|thx|ty|that'?s\s+all|that'?s\s+it|bye|good\s*bye|see\s+you)\b",
     re.IGNORECASE,
@@ -62,6 +67,12 @@ def parse_shopping_request(text: str) -> dict | None:
     else None. Needs a garment word, or a shopping verb plus an occasion
     ("I need something for a wedding")."""
     if not text:
+        return None
+    # "put it in my bag" / "add to my bag" is the shopping bag (cart), not handbags.
+    # And a sentence about the cart, favourites, filters or quantity is a screen
+    # command that merely names a garment ("throw the clutch out of my cart") --
+    # leave it to ui_commands / the screen_action tool.
+    if _IN_MY_BAG_RE.search(text) or _NOT_SHOPPING_RE.search(text):
         return None
     garments = []
     for g in _GARMENT_RE.findall(text):
