@@ -1,0 +1,189 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+import { useEffect, useRef, useState } from 'react';
+
+const LIGHTING = {
+  natural: 'transparent',
+  studio: 'rgba(255, 255, 255, 0.08)',
+  warm: 'rgba(255, 180, 80, 0.10)',
+  cool: 'rgba(100, 180, 255, 0.10)',
+};
+// MediaPipe Pose landmark indices (same ones body_shape.py uses).
+const L_SHOULDER = 11;
+const R_SHOULDER = 12;
+const L_HIP = 23;
+const R_HIP = 24;
+// Garment image is sized relative to shoulder width (clothing patterns look
+// right at ~1.6x the shoulder span) and anchored by its vertical placement.
+const GARMENT_LAYOUT = {
+  top: { widthMul: 1.6, topOffset: 0.3, hAlign: 'shoulders' },
+  dress: { widthMul: 1.5, topOffset: 0.2, hAlign: 'shoulders' },
+  bottom: { widthMul: 1.3, topOffset: 0.0, hAlign: 'hips' },
+  // Accessories don't try on; the component shows them as a side chip.
+};
+
+
+/**
+ * Live camera + pose-tracked garment overlay. Loads MediaPipe Pose on first
+ * mount (~2s one-off), draws every frame to a hidden canvas, and positions
+ * `item.image_url` over the person based on their shoulders/hips.
+ *
+ *   <TryOnMirror item={{image_url, category, name}} lighting="warm" zoom={1}
+ *                flipped={false} onPoseReady={...} />
+ */
+export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flipped = false,
+                                     onPoseReady, onError }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const overlayRef = useRef(null);
+  const poseRef = useRef(null);
+  const rafRef = useRef(null);
+  const streamRef = useRef(null);
+  const [status, setStatus] = useState('loading');  // loading | ready | error
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // ---------- Camera + MediaPipe boot
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: 960, height: 720 }, audio: false,
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        const video = videoRef.current;
+        video.srcObject = stream;
+        await video.play();
+
+        // MediaPipe Pose from the official CDN build. Deliberately NOT bundled
+        // (its wasm + model are ~5MB) -- loaded once per session on this page.
+        if (!window.Pose) {
+          await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js');
+        }
+        if (cancelled) return;
+        const pose = new window.Pose({
+          locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`,
+        });
+        pose.setOptions({
+          modelComplexity: 1, smoothLandmarks: true, enableSegmentation: false,
+          minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
+        });
+        pose.onResults(onPoseResults);
+        poseRef.current = pose;
+        setStatus('ready');
+        onPoseReady?.();
+        loop();
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err?.name === 'NotAllowedError'
+          ? 'Camera access was denied. Allow it in your browser to use try-on.'
+          : `Try-on couldn't start: ${err.message || err}`;
+        setErrorMessage(msg);
+        setStatus('error');
+        onError?.(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      try { poseRef.current?.close(); } catch { /* MediaPipe closed */ }
+    };
+  }, []);
+
+  // ---------- Per-frame: push the current video frame into MediaPipe
+  const loop = () => {
+    const pose = poseRef.current;
+    const video = videoRef.current;
+    if (!pose || !video || video.readyState < 2) {
+      rafRef.current = requestAnimationFrame(loop);
+      return;
+    }
+    pose.send({ image: video }).catch(() => { /* occasional dropped frame */ });
+    rafRef.current = requestAnimationFrame(loop);
+  };
+
+  // ---------- Landmarks -> overlay position
+  const onPoseResults = (res) => {
+    const overlay = overlayRef.current;
+    const video = videoRef.current;
+    if (!overlay || !video) return;
+    const marks = res?.poseLandmarks;
+    const layout = GARMENT_LAYOUT[item?.category];
+    if (!marks || !layout || !item?.image_url) { overlay.style.opacity = '0'; return; }
+
+    const ls = marks[L_SHOULDER];
+    const rs = marks[R_SHOULDER];
+    const lh = marks[L_HIP];
+    const rh = marks[R_HIP];
+    // All four points must be clearly visible; otherwise the overlay drifts.
+    const minVis = Math.min(ls?.visibility ?? 0, rs?.visibility ?? 0,
+                            lh?.visibility ?? 0, rh?.visibility ?? 0);
+    if (minVis < 0.4) { overlay.style.opacity = '0.3'; return; }
+
+    const w = video.clientWidth || video.videoWidth;
+    const h = video.clientHeight || video.videoHeight;
+    const toPx = (p) => ({ x: (flipped ? 1 - p.x : p.x) * w, y: p.y * h });
+    const lsP = toPx(ls); const rsP = toPx(rs);
+    const lhP = toPx(lh); const rhP = toPx(rh);
+
+    const shoulderMid = { x: (lsP.x + rsP.x) / 2, y: (lsP.y + rsP.y) / 2 };
+    const hipMid = { x: (lhP.x + rhP.x) / 2, y: (lhP.y + rhP.y) / 2 };
+    const shoulderSpan = Math.hypot(rsP.x - lsP.x, rsP.y - lsP.y);
+    const torsoLen = Math.hypot(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y);
+
+    const width = Math.max(80, shoulderSpan * layout.widthMul);
+    const anchor = layout.hAlign === 'hips' ? hipMid : shoulderMid;
+    const topY = anchor.y - torsoLen * layout.topOffset;
+    const angleDeg = Math.atan2(rsP.y - lsP.y, rsP.x - lsP.x) * 180 / Math.PI;
+
+    overlay.style.width = `${width}px`;
+    overlay.style.left = `${anchor.x - width / 2}px`;
+    overlay.style.top = `${topY}px`;
+    overlay.style.transform = `rotate(${angleDeg}deg)`;
+    overlay.style.opacity = '0.92';
+  };
+
+  return (
+    <div className="tryon-mirror" style={{ background: LIGHTING[lighting] }}>
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        style={{
+          width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+          transform: `scale(${zoom})${flipped ? ' scaleX(-1)' : ''}`,
+          transformOrigin: 'center',
+        }}
+      />
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      {item?.image_url && (
+        <img
+          ref={overlayRef}
+          src={item.image_url}
+          alt={item.name || 'try-on'}
+          className="tryon-garment"
+          style={{
+            position: 'absolute', pointerEvents: 'none', opacity: 0,
+            mixBlendMode: 'multiply', transformOrigin: 'center top',
+            transition: 'left .08s linear, top .08s linear, width .08s linear',
+          }}
+        />
+      )}
+      {status === 'loading' && <div className="tryon-overlay-msg">Loading pose tracking…</div>}
+      {status === 'error' && <div className="tryon-overlay-msg tryon-error">{errorMessage}</div>}
+    </div>
+  );
+}
+
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}

@@ -38,6 +38,8 @@ export function SessionProvider({ children }) {
   // The product list currently on screen, in display order -- sent to Aria
   // so "the second one" means the second card the customer is looking at.
   const [screenItems, setScreenItems] = useState([]);
+  // Item being tried on in /virtual-tryon ("try this on" from any screen).
+  const [tryonItem, setTryonItem] = useState(null);
   // Item details by id, filled from every product list the app shows, so an
   // action that only carries an item_id can still render a cart line.
   const itemCacheRef = useRef({});
@@ -257,6 +259,7 @@ export function SessionProvider({ children }) {
         cart, addToCart, removeFromCart, setCartQuantity, clearCart, cartOpen, setCartOpen,
         liked, likeItem, unlikeItem, clearLiked, registerItems,
         screenItems, setScreenItems,
+        tryonItem, setTryonItem,
         getItem: resolveItem,
         pendingOutfitActions, queueOutfitActions, consumeOutfitActions,
         toasts, showToast, dismissToast,

@@ -60,7 +60,8 @@ export function VoiceAgentProvider({ children }) {
   const {
     sessionId, setPendingRecommendations, setHighlightedItemId, highlightedItemId,
     addToCart, removeFromCart, setCartQuantity, clearCart, setCartOpen, cart,
-    liked, likeItem, unlikeItem, clearLiked, registerItems, screenItems,
+    liked, likeItem, unlikeItem, clearLiked, registerItems, screenItems, getItem,
+    tryonItem, setTryonItem,
     queueOutfitActions, showToast, presenceState,
     conversationGreeting, registerVoiceCallbacks,
   } = useSession();
@@ -312,9 +313,14 @@ export function VoiceAgentProvider({ children }) {
           addToCart(action.payload?.item || action.payload?.item_id);
           showToast('Added to your fitting room', 'success');
           break;
-        case 'start_tryon':
-          showToast('Virtual try-on is coming soon!', 'info');
+        case 'start_tryon': {
+          // Resolve the id to an item (so TryOnMirror has image + category),
+          // then open the page. The page reads it from SessionContext.
+          const item = action.payload?.item || getItem(action.payload?.item_id);
+          setTryonItem(item || null);
+          navigate('/virtual-tryon');
           break;
+        }
         case 'escalate_to_staff':
           showToast("I've let a store associate know -- they'll be with you shortly.", 'info');
           break;

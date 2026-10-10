@@ -445,6 +445,17 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
             d = "out" if "zoom out" in t else "in"
             return _turn(f"Zoomed {d}.", [("set_tryon_zoom", {"direction": d})], prefs)
 
+    # --- virtual try-on: "try this on" / "let me try the second one"
+    if (re.search(r"\btry\b.*\bon\b|\b(try[- ]?on)\b", t)
+            or re.search(r"\blet me (try|see) (it|this|that|them)\b", t)) \
+            and not re.search(r"\btry (something|another|different|again)\b", t) \
+            and not re.search(r"\bfitting room\b|\btrial room\b", t):
+        item = _resolve(t, screen, highlighted) or (
+            next((i for i in screen if str(i.get("id")) == highlighted), None) if highlighted else None)
+        if item:
+            return _turn(f"Opening the mirror -- stand in front of me and I'll overlay the {item.get('name')}.",
+                         [("start_tryon", {"item_id": item["id"], "item": item})], prefs)
+
     # --- outfit builder (page: /outfit-builder)
     if page == "outfit-builder" or re.search(r"\b(outfit( builder)?|look)\b", t):
         if re.search(r"\b(clear|start over|empty|reset)( the| my)?( whole)?( outfit| look)\b|\bbuild (a )?new( one| outfit| look)\b", t):

@@ -20,6 +20,8 @@ import AnimatedButton from '../components/Common/AnimatedButton';
 import { useSession } from '../context/SessionContext';
 import { logEventNow } from '../hooks/useEventLogger';
 import { useAriaAction } from '../utils/ariaBus';
+import TryOnMirror from '../components/TryOn/TryOnMirror';
+import '../components/TryOn/TryOnMirror.css';
 import './VirtualTryOn.css';
 
 const LIGHTING_MODES = [
@@ -37,7 +39,21 @@ const CURRENT_OUTFIT_ITEMS = [
 ];
 
 export default function VirtualTryOn() {
-  const { sessionId } = useSession();
+  const { sessionId, tryonItem } = useSession();
+  // "Items being tried on": the real item resolved from the voice command,
+  // otherwise the mock outfit (so this page still renders for a walk-up demo).
+  const liveItems = tryonItem
+    ? [{
+      id: tryonItem.id, name: tryonItem.name,
+      category: tryonItem.category === 'top' ? 'Top'
+        : tryonItem.category === 'dress' ? 'Dress'
+          : tryonItem.category === 'bottom' ? 'Bottom'
+            : (tryonItem.category || '').charAt(0).toUpperCase() + (tryonItem.category || '').slice(1),
+      emoji: { top: '👕', dress: '👗', bottom: '👖', footwear: '👟', bag: '👜',
+               watch: '⌚', jewelry: '💍', accessory: '🧣' }[tryonItem.category] || '👔',
+      icon: <RiTShirtLine />,
+    }]
+    : CURRENT_OUTFIT_ITEMS;
   const [lightingMode, setLightingMode] = useState('natural');
   const [zoom, setZoom] = useState(1);
   const [capturedPhoto, setCapturedPhoto] = useState(null);
@@ -121,62 +137,20 @@ export default function VirtualTryOn() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, ease: 'easeOut' }}
             >
-              {/* Camera Preview */}
-              <div
-                className="camera-preview"
-                style={{
-                  transform: `scale(${zoom})${isFlipped ? ' scaleX(-1)' : ''}`,
-                  backgroundColor: getLightingOverlay(),
-                }}
-              >
-                {/* Lighting Overlay */}
-                <div
-                  className="lighting-overlay"
-                  style={{ background: getLightingOverlay() }}
+              {/* Live camera + MediaPipe pose-tracked garment overlay. */}
+              <div className="camera-preview">
+                <TryOnMirror
+                  item={tryonItem}
+                  lighting={lightingMode}
+                  zoom={zoom}
+                  flipped={isFlipped}
                 />
-
-                {/* Placeholder Content */}
-                <div className="camera-placeholder">
-                  <motion.div
-                    className="camera-icon-wrapper"
-                    animate={{
-                      scale: [1, 1.05, 1],
-                      opacity: [0.4, 0.6, 0.4],
-                    }}
-                    transition={{
-                      duration: 3,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                    }}
-                  >
-                    <RiCameraLine className="camera-icon" />
-                  </motion.div>
-                  <p className="camera-text">
-                    Position yourself in front of the mirror
-                  </p>
-                  <p className="camera-subtext">
-                    Camera feed will appear here
-                  </p>
-                </div>
-
-                {/* AR Outfit Overlay */}
-                <div className="ar-overlay">
-                  <div className="ar-silhouette">
-                    <motion.div
-                      className="ar-silhouette-body"
-                      animate={{ opacity: [0.15, 0.25, 0.15] }}
-                      transition={{
-                        duration: 4,
-                        repeat: Infinity,
-                        ease: 'easeInOut',
-                      }}
-                    >
-                      <div className="silhouette-head" />
-                      <div className="silhouette-torso" />
-                      <div className="silhouette-legs" />
-                    </motion.div>
+                {!tryonItem && (
+                  <div className="camera-placeholder" style={{ pointerEvents: 'none' }}>
+                    <p className="camera-text">Say "try this on" from Recommendations or Shopping</p>
+                    <p className="camera-subtext">The garment will overlay on you here</p>
                   </div>
-                </div>
+                )}
 
                 {/* Zoom Indicator */}
                 {zoom !== 1 && (
@@ -339,7 +313,7 @@ export default function VirtualTryOn() {
             <p className="side-panel-subtitle">Items being tried on</p>
 
             <div className="tryon-items-list">
-              {CURRENT_OUTFIT_ITEMS.map((item, index) => (
+              {liveItems.map((item, index) => (
                 <motion.div
                   key={item.id}
                   className="tryon-item"
