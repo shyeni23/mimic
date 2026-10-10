@@ -648,6 +648,14 @@ _SCREEN_ACTIONS = {
     "set_department", "set_include_filter", "clear_filters", "search", "clear_search",
     "load_more", "set_lighting", "flip_camera", "capture_photo", "retake_photo",
     "dismiss_photo", "set_tryon_zoom",
+    # Outfit builder
+    "clear_outfit", "auto_complete_outfit", "read_outfit_stats", "set_outfit_name", "save_outfit",
+    # Profile / scan corrections
+    "correct_profile_field", "read_scan_status",
+    # Accessibility
+    "set_captions", "undo_last_action",
+    # Staff screen (role-gated by the UI)
+    "refresh_staff_requests", "set_staff_request_tab", "acknowledge_request", "resolve_request",
 }
 # Irreversible: shown as a yes/no banner; the customer's "yes" runs it
 # (ui_commands._confirmation_turn).

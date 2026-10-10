@@ -130,3 +130,23 @@
   color: #c9c9d9;
   margin: 0;
 }
+
+/* Spoken captions ("turn on captions") -- large, high-contrast, bottom-centred. */
+.voice-caption {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 110px;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: min(820px, calc(100vw - 32px));
+  padding: 14px 24px;
+  z-index: 1800;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 500;
+  border-radius: 12px;
+  text-align: center;
+  line-height: 1.4;
+}

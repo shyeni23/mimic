@@ -445,6 +445,69 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
             d = "out" if "zoom out" in t else "in"
             return _turn(f"Zoomed {d}.", [("set_tryon_zoom", {"direction": d})], prefs)
 
+    # --- outfit builder (page: /outfit-builder)
+    if page == "outfit-builder" or re.search(r"\b(outfit( builder)?|look)\b", t):
+        if re.search(r"\b(clear|start over|empty|reset)( the| my)?( whole)?( outfit| look)\b|\bbuild (a )?new( one| outfit| look)\b", t):
+            return _turn("Cleared! Let's build a new look.", [("clear_outfit", {})], prefs)
+        if re.search(r"\b(auto[- ]?complete|complete (it|the outfit|the look)|finish (it|the outfit|the look)|suggest (the )?rest)\b", t):
+            return _turn("Pulling the rest of the outfit together now.", [("auto_complete_outfit", {})], prefs)
+        if re.search(r"\b(score|match score|how (good|strong) is (this|my) (outfit|look))\b", t):
+            return _turn("", [("read_outfit_stats", {"stat": "score"})], prefs)
+        m = re.search(r"\b(?:call|name)\s+(?:it|the outfit|this(?:\s+outfit)?)\s+([a-z0-9'& -]{2,40})$", t)
+        if m:
+            name = m.group(1).strip()
+            return _turn(f"Named it '{name}'. Say 'save' when you're ready.",
+                         [("set_outfit_name", {"name": name})], prefs)
+        if re.fullmatch(r"save( the)?( outfit| look)?( please)?", t):
+            return _turn("Saved!", [("save_outfit", {})], prefs)
+
+    # --- profile / scan corrections
+    m = re.search(r"\bi'?m (actually |really )?(\d{2,3})\s*(cm|centim|' ?\d|feet|foot|ft)\b", t)
+    if not m:
+        m = re.search(r"\bmy height is (\d{2,3})\s*(cm|centim)?\b", t)
+    if m:
+        cm = int(m.group(1 if m.lastindex == 1 else 2))
+        if 90 <= cm <= 220:
+            return _turn(f"Noted, {cm} cm. I'll use that from now on.",
+                         [("correct_profile_field", {"field": "height_cm", "value": cm})], prefs)
+    m = re.search(r"\bi'?m (actually |really )?(?:a )?size (xs|s|m|l|xl|xxl|small|medium|large)\b|\bmy size is (xs|s|m|l|xl|xxl|small|medium|large)\b", t)
+    if m:
+        word = (m.group(2) or m.group(3)).upper()
+        size = {"SMALL": "S", "MEDIUM": "M", "LARGE": "L"}.get(word, word)
+        return _turn(f"Got it, size {size}.",
+                     [("correct_profile_field", {"field": "body_size_estimate", "value": size})], prefs)
+    if re.search(r"\b(start|do|take|redo)( a| another| the)? (body )?scan\b|\bscan me( again)?\b", t):
+        return _turn("Opening the body scanner.", [("navigate", {"page": "body-scanner"}),
+                                                   ("start_scan", {})], prefs)
+    if re.search(r"\b(what'?s my|read( me)? my|tell me my)\b.*\b(scan|results|profile|height|size|skin tone|face shape|body shape)\b", t):
+        aspect = next((w for w in ("height", "size", "skin tone", "face shape", "body shape") if w in t), "all")
+        return _turn("", [("read_scan_status", {"aspect": aspect})], prefs)
+
+    # --- captions, undo (accessibility)
+    if re.search(r"\b(turn on|show|enable) (captions?|subtitles?)\b", t):
+        return _turn("Captions are on.", [("set_captions", {"enabled": True})], prefs)
+    if re.search(r"\b(turn off|hide|disable) (captions?|subtitles?)\b", t):
+        return _turn("Captions off.", [("set_captions", {"enabled": False})], prefs)
+    if re.search(r"\b(undo|undo that|reverse that|wapas lao)\b", t) and len(t.split()) <= 5:
+        return _turn("Undone.", [("undo_last_action", {})], prefs)
+
+    # --- staff screen (staff role only; UI blocks for customers)
+    if page in ("staff-requests", "staff_requests") or re.search(r"\b(staff queue|staff requests)\b", t):
+        if re.search(r"\brefresh\b", t):
+            return _turn("Refreshed.", [("refresh_staff_requests", {})], prefs)
+        if re.search(r"\b(pending|all) (requests|tab)\b|\bshow (pending|all)\b", t):
+            tab = "pending" if "pending" in t else "all"
+            return _turn(f"Showing {tab} requests.", [("set_staff_request_tab", {"tab": tab})], prefs)
+        if re.search(r"\b(acknowledge|ack|got it)\b", t) and _ORDINAL_RE.search(t):
+            # The staff screen attaches its request ids to screen_items.
+            item = _resolve(t, screen, highlighted)
+            if item:
+                return _turn("Acknowledged.", [("acknowledge_request", {"request_id": item["id"]})], prefs)
+        if re.search(r"\b(resolve|mark done|complete|close)\b", t) and _ORDINAL_RE.search(t):
+            item = _resolve(t, screen, highlighted)
+            if item:
+                return _turn("Marked as resolved.", [("resolve_request", {"request_id": item["id"]})], prefs)
+
     # --- rate / compare / enlarge an item
     stars = re.search(r"\b([1-5]|one|two|three|four|five) stars?\b", t)
     if stars or re.search(r"\bthumbs? (up|down)\b", t):

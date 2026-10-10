@@ -109,3 +109,34 @@ def test_in_my_bag_is_not_a_handbag_request():
 
 def test_softer_style_is_not_a_volume_command():
     assert actions("maybe something softer") is None
+
+
+def test_face_shape_hint_per_category():
+    from app.services.fashion.inventory_search import face_shape_hint
+    assert "V-neck" in face_shape_hint("round", "top")
+    assert "long drop earrings" in face_shape_hint("round", "jewelry")
+    assert "angular sunglasses" in face_shape_hint("round", "accessory")
+    # Bottoms are unaffected by face shape -- no hint.
+    assert face_shape_hint("round", "bottom") is None
+    assert face_shape_hint(None, "top") is None
+    assert face_shape_hint("unknown", "top") is None
+    # Alias handling: frontend sends "long" for oblong.
+    assert face_shape_hint("long", "top") == face_shape_hint("oblong", "top")
+
+
+def test_recommend_items_adds_face_shape_to_query(monkeypatch):
+    import app.services.fashion.inventory_search as mod
+    seen = {}
+    def fake_search(query_text, **kw):
+        seen["q"] = query_text
+        return [{"id": "x1", "name": "Round Earrings", "category": "jewelry", "color": "gold",
+                 "occasion": [], "stock": 1, "gender": "female"}]
+    monkeypatch.setattr(mod, "semantic_search", fake_search)
+    monkeypatch.setattr(mod, "apply_catalog_filters", lambda c, g: c)
+    import app.services.fashion.trends as trends_mod
+    monkeypatch.setattr(trends_mod, "annotate_trend_signals", lambda *a, **k: None)
+    monkeypatch.setattr(trends_mod, "trend_explanation_fragment", lambda i: None)
+    r = mod.recommend_items(depth="medium", undertone="neutral", body_shape="rectangle",
+                            gender="female", category="jewelry", face_shape="round")
+    assert "long drop earrings" in seen["q"]
+    assert any("round face shape" in (i.get("explanation") or "") for i in r["results"])

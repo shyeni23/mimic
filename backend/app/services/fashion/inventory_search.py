@@ -331,6 +331,59 @@ def parse_requested_items(text: str | None) -> list[str] | None:
     return [c for c in ALL_ITEM_CATEGORIES if c in found]
 
 
+# Face-shape styling, from the standard "balance the opposite" rule set:
+# soften strong angles, add length to round, give long faces width.
+# Keyed by category so the hint only appears for products it actually helps.
+_FACE_SHAPE_HINTS = {
+    "oval": {
+        "jewelry": "most earring and necklace shapes suit an oval face",
+        "accessory": "any sunglasses shape suits an oval face",
+        "top": "any neckline suits an oval face",
+    },
+    "round": {
+        "jewelry": "long drop earrings and long necklaces that add vertical length",
+        "accessory": "angular sunglasses with square or rectangular frames",
+        "top": "V-necks, deep necklines and open collars that lengthen the face",
+    },
+    "square": {
+        "jewelry": "round or oval earrings and curved necklaces that soften a strong jawline",
+        "accessory": "round or oval sunglasses with soft curves",
+        "top": "scoop and sweetheart necklines that soften strong angles",
+    },
+    "heart": {
+        "jewelry": "teardrop or chandelier earrings that add width at the jaw",
+        "accessory": "bottom-heavy sunglasses, aviators or cat-eyes",
+        "top": "boat neck and off-shoulder necklines that broaden the shoulder line",
+    },
+    "oblong": {    # also known as "long"
+        "jewelry": "wide studs and short, chunky necklaces that add width, not length",
+        "accessory": "oversized round or square sunglasses that break the face length",
+        "top": "boat neck, crew neck and horizontal lines that add width",
+    },
+    "long": {      # alias used by the frontend mapper
+        "jewelry": "wide studs and short, chunky necklaces that add width, not length",
+        "accessory": "oversized round or square sunglasses that break the face length",
+        "top": "boat neck, crew neck and horizontal lines that add width",
+    },
+    "diamond": {
+        "jewelry": "statement necklaces at the collarbone and earrings that fill the jaw",
+        "accessory": "cat-eye or oval sunglasses that soften a wide cheekbone",
+        "top": "boat necks, scoop necks and portrait necklines",
+    },
+}
+
+
+def face_shape_hint(face_shape: str | None, category: str | None) -> str | None:
+    """Styling guidance for the category being searched, or None when the
+    face shape is unknown or doesn't change anything for this category."""
+    if not face_shape or face_shape == "unknown":
+        return None
+    hints = _FACE_SHAPE_HINTS.get(face_shape.lower())
+    if not hints:
+        return None
+    return hints.get(category)
+
+
 def body_shape_hint(body_shape: str | None, gender: str | None) -> str:
     """Stylist wording for a body shape, per department -- also used by
     styled_look.py. The women's wording ("belted", "A-line") is real advice
@@ -541,6 +594,7 @@ def recommend_items(
     height_cm: float | None = None,
     glasses_detected: bool = False,
     hair_length: str = "unknown",
+    face_shape: str | None = None,
     style: str | None = None,
     constraints: list[str] | None = None,
     size: str | None = None,
@@ -625,6 +679,13 @@ def recommend_items(
         accessory_query += f" for {occasion}"
     if is_garment_search:
         query_text += f", {body_shape_hints}"
+    # Face-shape hint: only when it's actually useful for THIS category --
+    # necklines for tops/dresses, earring+necklace styles for jewellery,
+    # sunglasses frames for accessories.
+    face_hint = face_shape_hint(face_shape, category if category in ("jewelry", "accessory") else
+                                ("top" if is_garment_search else None))
+    if face_hint:
+        query_text += f", {face_hint}"
     if style:
         query_text += f", {style} style"
         accessory_query += f", {style} style"
@@ -863,6 +924,12 @@ def recommend_items(
             why.append(f"sized for a {size} fit" if size else size_hint)
         if glasses_detected and item.get("category") in ("accessory",):
             why.append("picked with your glasses in mind so it doesn't visually compete")
+        # Face-shape line in the explanation when the hint actually applied.
+        _face_cat = item.get("category") if item.get("category") in ("jewelry", "accessory") else \
+            ("top" if item.get("category") in _GARMENT_CATEGORIES else None)
+        _face_line = face_shape_hint(face_shape, _face_cat)
+        if _face_line:
+            why.append(f"flatters your {face_shape} face shape: {_face_line}")
         if item.get("within_budget") is True:
             why.append("within your budget")
         elif item.get("within_budget") is False:

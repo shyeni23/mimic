@@ -27,6 +27,16 @@ class ScanGenderRequest(BaseModel):
     gender: str   # 'male' | 'female' | 'unknown' (unknown = show both departments)
 
 
+class ScanHeightRequest(BaseModel):
+    session_id: str
+    height_cm: float
+
+
+class ScanSizeRequest(BaseModel):
+    session_id: str
+    body_size_estimate: str   # 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL'
+
+
 class CalibrationRequest(BaseModel):
     pixel_height: float   # top-of-head to ankle, in pixels, from a known-height reference person
     real_height_cm: float

@@ -56,6 +56,9 @@ def recommend(req: RecommendRequest):
         height_cm=scan.get("height_cm"),
         glasses_detected=scan.get("glasses_detected", False),
         hair_length=scan.get("hair_length", "unknown"),
+        # Face shape drives neckline / jewellery / eyewear hints -- see
+        # face_shape_hint() in inventory_search.
+        face_shape=scan.get("face_shape"),
         style=fashion_preferences.get("style"),
         constraints=fashion_preferences.get("constraints"),
         size=scan.get("body_size_estimate"),

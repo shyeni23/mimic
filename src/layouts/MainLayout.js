@@ -35,11 +35,43 @@ export default function MainLayout() {
   // viewport froze the entire app (chat input, buttons, everything) behind
   // an invisible full-page overlay.
   const isCompact = useIsTablet();
-  const { toasts, dismissToast, getItem } = useSession();
+  const { toasts, dismissToast, getItem, scanData, showToast } = useSession();
   const [confirmPrompt, setConfirmPrompt] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // "Zoom in on it" (one item) / "compare the first two" (two items).
   const [viewerItems, setViewerItems] = useState(null);
+  // "Turn on captions" -- Aria's spoken replies also appear large on screen.
+  const [captionsOn, setCaptionsOn] = useState(() => {
+    try { return localStorage.getItem('mirrorai-captions') === '1'; } catch { return false; }
+  });
+  const [caption, setCaption] = useState('');
+
+  useAriaAction(['set_captions', 'read_scan_status'], (payload, type) => {
+    if (type === 'set_captions') setCaptionsOn(!!payload.enabled);
+    else if (type === 'read_scan_status' && scanData) {
+      const parts = [];
+      const want = payload.aspect || 'all';
+      if ((want === 'all' || want === 'height') && scanData.height_cm) parts.push(`height ${Math.round(scanData.height_cm)} cm`);
+      if ((want === 'all' || want === 'size') && scanData.size_estimate) parts.push(`size ${scanData.size_estimate}`);
+      if ((want === 'all' || want === 'body shape') && scanData.body_shape && scanData.body_shape !== 'unknown') parts.push(`${scanData.body_shape} body`);
+      if ((want === 'all' || want === 'face shape') && scanData.face_shape && scanData.face_shape !== 'unknown') parts.push(`${scanData.face_shape} face`);
+      if ((want === 'all' || want === 'skin tone') && scanData.skin_tone_undertone) parts.push(`${scanData.skin_tone_undertone} undertone`);
+      showToast(parts.length ? `From your scan: ${parts.join(', ')}.` : 'No scan on file yet.', 'info');
+    }
+  });
+
+  // Caption text comes from the last Aria message when captions are on.
+  useEffect(() => {
+    if (!captionsOn) { setCaption(''); return undefined; }
+    const update = () => {
+      const bubbles = document.querySelectorAll('.aria-panel-messages > *');
+      const last = bubbles[bubbles.length - 1];
+      setCaption(last && !last.textContent.startsWith('You') ? last.textContent.trim() : '');
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [captionsOn]);
   useEffect(() => setVoiceOverlayOpen(!!viewerItems), [viewerItems]);
 
   useAriaAction(['zoom_item_image', 'compare_items', 'close_item_detail'], (payload, type) => {
@@ -121,6 +153,17 @@ export default function MainLayout() {
               </figure>
             ))}
             <p className="voice-item-hint">Say "close" or "go back" to return</p>
+          </motion.div>
+        )}
+        {captionsOn && caption && (
+          <motion.div
+            key={caption}
+            className="voice-caption"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+          >
+            {caption}
           </motion.div>
         )}
         {helpOpen && (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAriaAction } from '../utils/ariaBus';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
   RiShirtLine,
@@ -132,7 +133,7 @@ const SLOT_EMOJI = {
 };
 
 export default function OutfitBuilder() {
-  const { sessionId, scanData, consumeOutfitActions } = useSession();
+  const { sessionId, scanData, consumeOutfitActions, showToast } = useSession();
   const [selectedCategory, setSelectedCategory] = useState('top');
   const [selectedItems, setSelectedItems] = useState({});
   const [paletteItems, setPaletteItems] = useState(ITEMS_DATA);
@@ -266,9 +267,25 @@ export default function OutfitBuilder() {
     }
   }, [consumeOutfitActions, handleAddItem, handleRemoveItem, handleSaveOutfit, paletteItems]);
 
+
   const totalSlots = MANNEQUIN_SLOTS.length;
   const filledSlots = Object.keys(selectedItems).length;
   const completionPercent = Math.round((filledSlots / totalSlots) * 100);
+
+  // Voice (docs/dataset/new_actions.json): clear, auto-complete, read score.
+  useAriaAction(['clear_outfit', 'auto_complete_outfit', 'read_outfit_stats'], (payload, type) => {
+    if (type === 'clear_outfit') { setSelectedItems({}); setOutfitName(''); }
+    else if (type === 'auto_complete_outfit') fetchAiOutfit();
+    else if (type === 'read_outfit_stats') {
+      const score = aiOverallScore != null ? Math.round(aiOverallScore * 100) : null;
+      const msg = payload.stat === 'completion'
+        ? `${completionPercent}% complete, ${filledSlots} of ${totalSlots} pieces.`
+        : score != null
+          ? `AI match score is ${score}% with ${filledSlots} of ${totalSlots} pieces picked.`
+          : `${filledSlots} of ${totalSlots} pieces picked -- say "complete the outfit" to let me finish it.`;
+      showToast(msg, 'info');
+    }
+  });
 
   return (
     <motion.div

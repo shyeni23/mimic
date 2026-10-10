@@ -9,9 +9,11 @@ from app.services.vision.accessory_detect import detect_glasses, detect_hair_len
 from app.services.vision.gender_detect import detect_gender
 from app.db.supabase_client import (
     save_scan_result, upload_media, get_mirror_calibration, set_mirror_calibration,
-    update_scan_frame_url, update_scan_gender,
+    update_scan_frame_url, update_scan_gender, update_scan_height, update_scan_size,
 )
-from app.models.schemas import ScanResponse, CalibrationRequest, ScanGenderRequest
+from app.models.schemas import (
+    ScanResponse, CalibrationRequest, ScanGenderRequest, ScanHeightRequest, ScanSizeRequest,
+)
 
 router = APIRouter(prefix="/api/vision", tags=["vision (Module 1)"])
 
@@ -167,6 +169,30 @@ def confirm_gender(req: ScanGenderRequest):
     if not updated:
         raise HTTPException(status_code=404, detail="No scan found for this session. Call /api/vision/scan first.")
     return {"session_id": req.session_id, "gender": gender, "source": "customer"}
+
+
+@router.post("/scan/height")
+def confirm_height(req: ScanHeightRequest):
+    """Customer-stated height ("I'm actually 165 cm"). Always beats the
+    camera estimate -- see height_estimate.py's merge_height."""
+    if not 90 <= req.height_cm <= 220:
+        raise HTTPException(status_code=400, detail="height_cm must be between 90 and 220")
+    updated = update_scan_height(req.session_id, req.height_cm, source="spoken")
+    if not updated:
+        raise HTTPException(status_code=404, detail="No scan found for this session.")
+    return {"session_id": req.session_id, "height_cm": req.height_cm, "source": "customer"}
+
+
+@router.post("/scan/size")
+def confirm_size(req: ScanSizeRequest):
+    """Customer-stated size ("I'm a size M")."""
+    size = (req.body_size_estimate or "").upper()
+    if size not in ("XS", "S", "M", "L", "XL", "XXL"):
+        raise HTTPException(status_code=400, detail="size must be XS/S/M/L/XL/XXL")
+    updated = update_scan_size(req.session_id, size)
+    if not updated:
+        raise HTTPException(status_code=404, detail="No scan found for this session.")
+    return {"session_id": req.session_id, "body_size_estimate": size, "source": "customer"}
 
 
 @router.post("/calibrate")

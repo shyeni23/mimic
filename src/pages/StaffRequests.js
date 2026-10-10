@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAriaAction } from '../utils/ariaBus';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RiCustomerService2Line, RiPriceTag3Line, RiBankCardLine, RiRefund2Line,
@@ -115,6 +116,21 @@ export default function StaffRequests() {
       });
     }
   };
+
+  // Voice (staff only): refresh, switch tab, acknowledge/resolve #N.
+  const { setScreenItems } = useSession();   // from the import on line 3
+  useEffect(() => {
+    setScreenItems((requests || []).map((r) => ({
+      id: r.id, name: `${REASON_META[r.reason]?.label || r.reason}: ${r.message || '…'}`.slice(0, 50),
+    })));
+  }, [requests, setScreenItems]);
+  useAriaAction(['refresh_staff_requests', 'set_staff_request_tab', 'acknowledge_request', 'resolve_request'],
+    (payload, type) => {
+      if (type === 'refresh_staff_requests') load();
+      else if (type === 'set_staff_request_tab' && payload.tab) setView(payload.tab);
+      else if (type === 'acknowledge_request' && payload.request_id) setStatus(payload.request_id, 'acknowledged');
+      else if (type === 'resolve_request' && payload.request_id) setStatus(payload.request_id, 'resolved');
+    });
 
   const pendingCount = view === 'pending' ? requests.length : requests.filter((r) => r.status === 'pending').length;
 

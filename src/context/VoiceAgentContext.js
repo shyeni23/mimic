@@ -131,7 +131,7 @@ export function VoiceAgentProvider({ children }) {
     }
   }, []);
 
-  const handleActions = useCallback((actions) => {
+  const handleActions = useCallback(async (actions) => {
     const outfitBatch = [];
     // Opening the scanner wins over any other page change in the same batch;
     // otherwise a later navigate would pull her straight off the scan.
@@ -211,6 +211,30 @@ export function VoiceAgentProvider({ children }) {
           break;
         case 'send_to_fitting_room':
           showToast('A staff member will bring your items to a fitting room', 'success');
+          break;
+        case 'correct_profile_field':
+          // "I'm actually 165 cm" / "I'm a size M".
+          try {
+            const endpoint = p.field === 'height_cm'
+              ? '/api/vision/scan/height'
+              : p.field === 'body_size_estimate'
+                ? '/api/vision/scan/size'
+                : null;
+            if (endpoint) await apiPostJSON(endpoint, { session_id: sessionId, [p.field]: p.value });
+          } catch (err) { console.warn('[voice] profile correction failed', err); }
+          showToast(`Updated your ${p.field === 'height_cm' ? 'height' : 'size'}.`, 'success');
+          break;
+        case 'read_scan_status':
+          emitAriaAction(action);  // Body Scanner / Profile pages show the status
+          showToast('Here\'s what we have from your scan.', 'info');
+          break;
+        case 'set_captions':
+          try { localStorage.setItem('mirrorai-captions', p.enabled ? '1' : '0'); } catch { /* storage blocked */ }
+          emitAriaAction(action);
+          break;
+        case 'undo_last_action':
+          emitAriaAction(action);
+          showToast('Undone', 'info');
           break;
         case 'zoom_item_image':
         case 'compare_items':

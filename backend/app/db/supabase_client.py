@@ -141,6 +141,17 @@ def update_scan_gender(session_id: str, gender: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def update_scan_size(session_id: str, size: str) -> dict | None:
+    """Customer-corrected size ("I'm actually a size M"). Overwrites the
+    scan's `body_size_estimate`, so later /api/recommend calls honour it."""
+    sb = get_supabase()
+    latest = get_latest_scan(session_id)
+    if not latest:
+        return None
+    res = sb.table("scans").update({"body_size_estimate": size.upper()}).eq("id", latest["id"]).execute()
+    return res.data[0] if res.data else None
+
+
 def update_scan_frame_url(session_id: str, frame_url: str) -> dict | None:
     """Called from a background task after /api/vision/scan already responded,
     so Storage upload latency never blocks the sub-1-second scan response."""

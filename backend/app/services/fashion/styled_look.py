@@ -208,13 +208,21 @@ def _palette_rank(items: list[dict], palette: list[str], occasion: str | None) -
 def _fill_group(*, category: str | None, keywords: list[str], exclude: list[str], wording: str,
                 gender: str | None, palette: list[str], occasion: str | None,
                 hint: str | None, per_group: int, exclude_ids: set | None = None,
-                strict_occasion: bool = False) -> list[dict]:
+                strict_occasion: bool = False, face_shape: str | None = None) -> list[dict]:
     department = {"male": "men's ", "female": "women's "}.get(gender or "", "")
     query = department + ", ".join(palette[:3]) + f" {wording}"
     if occasion:
         query += f" for {occasion}"
     if hint and (category in _GARMENT_CATEGORIES or category is None):
         query += f", {hint}"
+    # Face shape only steers categories where it actually helps (necklines,
+    # jewellery, eyewear); for everything else the hint would be noise.
+    from app.services.fashion.inventory_search import face_shape_hint as _fs
+    face_cat = category if category in ("jewelry", "accessory") else (
+        "top" if (category in _GARMENT_CATEGORIES or category is None) else None)
+    face_hint = _fs(face_shape, face_cat)
+    if face_hint:
+        query += f", {face_hint}"
 
     picks: list[dict] = []
     try:
@@ -275,7 +283,8 @@ def _explain(item: dict, *, palette: list[str], undertone: str, hint: str, group
 def recommend_styled_look(
     depth: str, undertone: str, body_shape: str, gender: str | None = None,
     occasion: str | None = None, per_group: int = 3,
-    include: list[str] | None = None, strict_occasion: bool = False, **_ignored,
+    include: list[str] | None = None, strict_occasion: bool = False,
+    face_shape: str | None = None, **_ignored,
 ) -> dict:
     """Build the grouped look. Extra kwargs (style/constraints/budget/...) are
     accepted and ignored so this is a drop-in for recommend_complete_look's
@@ -313,7 +322,7 @@ def recommend_styled_look(
             jobs.append((category, CATEGORY_LABELS.get(category, category.title()), label, dict(
                 category=category, keywords=kws, exclude=excl, wording=wording,
                 gender=gender, palette=palette, occasion=occasion, hint=hint, per_group=per_group,
-                strict_occasion=strict_occasion,
+                strict_occasion=strict_occasion, face_shape=face_shape,
             )))
     results = list(_POOL.map(lambda j: _fill_group(**j[3]), jobs)) if jobs else []
 
@@ -331,7 +340,7 @@ def recommend_styled_look(
         occ_jobs.append(("occasion", "Outfits by occasion", label, dict(
             category=None, keywords=[], exclude=[], wording="outfit",
             gender=gender, palette=palette, occasion=occ, hint=hint, per_group=per_group,
-            exclude_ids=used,
+            exclude_ids=used, face_shape=face_shape,
         )))
     results += list(_POOL.map(lambda j: _fill_group(**j[3]), occ_jobs))
     jobs += occ_jobs
