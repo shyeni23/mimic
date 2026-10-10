@@ -808,3 +808,10 @@
     max-width: 100%;
   }
 }
+
+/* Item Aria is talking about ("this one", "show the third one"). */
+.product-card.product-card-highlighted {
+  outline: 3px solid var(--primary, #6c63ff);
+  outline-offset: 2px;
+  box-shadow: 0 0 24px rgba(108, 99, 255, 0.45);
+}

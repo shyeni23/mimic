@@ -1,0 +1,2774 @@
+{
+  "file": "new_actions.json",
+  "version": "1.0.0",
+  "description": "Frontend actions required by the Aria intent set that do not exist yet. Existing actions are listed for reference and must keep their current names. All action names, param names and enum values here are the canonical ones used by intents.json, dialogues.json and test_set.json.",
+  "conventions": {
+    "reply_mode": {
+      "silent": "Perform the action with no speech. An earcon/visual pulse is enough (used for scroll, zoom, paging, which customers repeat quickly).",
+      "short": "One short confirmation of 2-8 words.",
+      "full": "A full reply of up to 25 words, read aloud."
+    },
+    "confirmation_flow": "When requires_confirmation is true, the backend does NOT dispatch the action directly. It dispatches show_confirmation with the pending action, stores it in conversation_state.pending_confirmation, and dispatches the real action only after confirm_pending_action. cancel_pending_action or any unrelated intent clears it. Pending confirmations expire after 20 seconds.",
+    "item_resolution": "Intents carry an item_reference slot. The backend resolves it against conversation_state.last_shown (and the highlighted item) to a concrete item_id BEFORE dispatching. The frontend always receives item_id strings, never raw phrases.",
+    "role_enforcement": "Actions with allowed_roles ['staff'] are rejected by the backend for customer sessions; Aria replies with the refusal text and offers request_staff_assistance.",
+    "screen_ids": [
+      "global",
+      "login",
+      "dashboard",
+      "body_scanner",
+      "analysis_results",
+      "recommendations",
+      "ai_stylist",
+      "outfit_builder",
+      "virtual_tryon",
+      "personalization",
+      "shopping",
+      "profile",
+      "settings",
+      "staff_requests"
+    ]
+  },
+  "param_types": {
+    "item_id": {
+      "type": "string",
+      "description": "Catalog item id resolved by the backend from an item_reference."
+    },
+    "item_reference": {
+      "type": "object",
+      "description": "Spoken reference to an on-screen item. Resolved server-side to item_id.",
+      "forms": {
+        "ordinal": [
+          "first",
+          "second",
+          "2nd",
+          "third",
+          "number 4",
+          "fifth",
+          "tenth"
+        ],
+        "relative": [
+          "next",
+          "previous",
+          "last",
+          "second last"
+        ],
+        "deictic": [
+          "this one",
+          "that one",
+          "yeh wala",
+          "woh wala"
+        ],
+        "colour": [
+          "the red one",
+          "the blue kurta",
+          "laal wala"
+        ],
+        "name": [
+          "the Fabindia saree",
+          "the black clutch"
+        ],
+        "grid_position": [
+          "top-left",
+          "the one on the right",
+          "bottom row first"
+        ]
+      },
+      "deictic_rule": "'this'/'that' = currently highlighted item, else the most recently mentioned item, else ask.",
+      "ambiguity_rule": "If more than one item matches (e.g. two red items), Aria asks a missing_slot question listing up to 3 candidates by position."
+    },
+    "page": {
+      "type": "enum",
+      "values": [
+        "dashboard",
+        "body_scanner",
+        "analysis_results",
+        "recommendations",
+        "ai_stylist",
+        "outfit_builder",
+        "virtual_tryon",
+        "personalization",
+        "shopping",
+        "profile",
+        "staff_assistance",
+        "settings",
+        "staff_requests"
+      ]
+    },
+    "category": {
+      "type": "enum",
+      "values": [
+        "all",
+        "top",
+        "bottom",
+        "dress",
+        "footwear",
+        "bag",
+        "watch",
+        "jewelry",
+        "accessory"
+      ]
+    },
+    "occasion": {
+      "type": "enum",
+      "values": [
+        "all",
+        "casual",
+        "ethnic",
+        "formal",
+        "office",
+        "party",
+        "smart casual",
+        "sports",
+        "travel",
+        "wedding"
+      ]
+    },
+    "include_group": {
+      "type": "enum",
+      "values": [
+        "clothes",
+        "footwear",
+        "bags",
+        "watches",
+        "jewelry",
+        "accessories",
+        "everything"
+      ]
+    },
+    "department": {
+      "type": "enum",
+      "values": [
+        "womens",
+        "mens"
+      ]
+    }
+  },
+  "existing_actions": [
+    "navigate",
+    "repeat_last_reply",
+    "start_scan",
+    "show_recommendations",
+    "show_item",
+    "start_tryon",
+    "escalate_to_staff",
+    "add_to_cart",
+    "toggle_theme",
+    "admin_logout",
+    "end_conversation",
+    "select_outfit_category",
+    "set_outfit_item",
+    "remove_outfit_item",
+    "set_outfit_name",
+    "save_outfit"
+  ],
+  "new_actions": [
+    {
+      "name": "go_back",
+      "group": "navigation",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Browser-style history back within the app. If an item detail or cart drawer is open, closes it first instead of leaving the page. On the first page of the session, no-op.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Going back.",
+          "Peeche chalte hain."
+        ],
+        "not_possible": [
+          "This is the first screen, so there's nothing to go back to."
+        ]
+      }
+    },
+    {
+      "name": "go_forward",
+      "group": "navigation",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "History forward. No-op if there is no forward entry.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Going forward.",
+          "Aage chalte hain."
+        ],
+        "not_possible": [
+          "There's no page ahead. Want me to open something specific?"
+        ]
+      }
+    },
+    {
+      "name": "refresh_page",
+      "group": "navigation",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Re-fetches data for the current page without a full browser reload. Conversation state, cart and liked items are preserved.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Refreshing the page.",
+          "Page refresh ho raha hai."
+        ],
+        "not_possible": [
+          "I couldn't refresh right now. Let me call a staff member if it keeps happening."
+        ]
+      }
+    },
+    {
+      "name": "toggle_sidebar",
+      "group": "navigation",
+      "params": {
+        "state": {
+          "type": "enum",
+          "values": [
+            "open",
+            "close",
+            "toggle"
+          ],
+          "required": false,
+          "default": "toggle"
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Opens or closes the left sidebar menu. When opened by voice, menu items are read-highlighted so the customer can say a page name next.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Menu is open. Which page would you like?",
+          "Menu closed.",
+          "Menu khul gaya, kaunsa page kholein?"
+        ],
+        "not_possible": [
+          "The menu is already open."
+        ]
+      }
+    },
+    {
+      "name": "set_aria_panel",
+      "group": "assistant_control",
+      "params": {
+        "state": {
+          "type": "enum",
+          "values": [
+            "open",
+            "expand",
+            "minimize",
+            "close"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Controls the Aria overlay. 'close' hides the panel but keeps listening in hands-free mode; Aria can be reopened by voice.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "I'm here.",
+          "Panel minimised. Just call me when you need me.",
+          "Main yahin hoon, bas bolo."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_hands_free",
+      "group": "assistant_control",
+      "params": {
+        "enabled": {
+          "type": "bool",
+          "required": true
+        }
+      },
+      "screens": [
+        "global",
+        "ai_stylist"
+      ],
+      "ui_behaviour": "Turns continuous listening on/off. When turned off, the mirror shows a large on-screen hint telling the customer to say the wake phrase 'Hey Aria' (wake-word detection stays active so the mirror remains touchless).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Hands-free is on. I'm listening.",
+          "Hands-free is off. Say 'Hey Aria' when you need me.",
+          "Ab main sun rahi hoon."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_mic_recording",
+      "group": "assistant_control",
+      "params": {
+        "state": {
+          "type": "enum",
+          "values": [
+            "start",
+            "stop"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global",
+        "ai_stylist"
+      ],
+      "ui_behaviour": "Starts or stops a single push-to-talk recording when hands-free is off. Shows the live mic indicator.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Listening.",
+          "Boliye."
+        ],
+        "not_possible": [
+          "The microphone isn't available right now. A staff member can help."
+        ]
+      }
+    },
+    {
+      "name": "set_listening_mode",
+      "group": "assistant_control",
+      "params": {
+        "state": {
+          "type": "enum",
+          "values": [
+            "awake",
+            "sleep"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "'sleep' stops processing speech except the wake phrase and dims the Aria orb. 'awake' resumes. Used for 'Aria, sleep' / 'wake up'.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Okay, I'll stay quiet. Say 'Hey Aria' to wake me.",
+          "I'm awake! How can I help?",
+          "Theek hai, 'Hey Aria' bolna jab zaroorat ho."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_notifications_panel",
+      "group": "navigation",
+      "params": {
+        "state": {
+          "type": "enum",
+          "values": [
+            "open",
+            "close"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Opens or closes the top-bar notifications dropdown. When opened by voice, Aria reads the newest notification title.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here are your notifications.",
+          "Notifications closed."
+        ],
+        "not_possible": [
+          "You don't have any notifications right now."
+        ]
+      }
+    },
+    {
+      "name": "set_theme",
+      "group": "display",
+      "params": {
+        "mode": {
+          "type": "enum",
+          "values": [
+            "dark",
+            "light"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Sets an explicit theme (unlike toggle_theme which flips it). If already in that mode, no-op with a reply.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Switched to dark mode.",
+          "Switched to light mode."
+        ],
+        "not_possible": [
+          "It's already in that mode."
+        ]
+      }
+    },
+    {
+      "name": "set_zoom",
+      "group": "display",
+      "params": {
+        "direction": {
+          "type": "enum",
+          "values": [
+            "in",
+            "out",
+            "reset"
+          ],
+          "required": true
+        },
+        "level": {
+          "type": "number",
+          "min": 80,
+          "max": 200,
+          "unit": "percent",
+          "required": false
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Accessibility zoom of the whole UI in 20% steps (80-200%). 'level' sets an exact value. Does not affect the try-on camera zoom (see set_tryon_zoom).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Made it bigger.",
+          "Made it smaller.",
+          "Back to normal size.",
+          "Bada kar diya."
+        ],
+        "not_possible": [
+          "That's already the largest size.",
+          "That's already the smallest size."
+        ]
+      }
+    },
+    {
+      "name": "set_captions",
+      "group": "accessibility",
+      "params": {
+        "enabled": {
+          "type": "bool",
+          "required": true
+        },
+        "size": {
+          "type": "enum",
+          "values": [
+            "normal",
+            "large"
+          ],
+          "required": false,
+          "default": "large"
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Shows Aria's replies as large on-screen captions (for customers who prefer reading). Sets conversation_state.accessibility_hearing_text_pref.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "I'll show everything I say as text too.",
+          "Captions off."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "scroll",
+      "group": "scrolling",
+      "params": {
+        "direction": {
+          "type": "enum",
+          "values": [
+            "up",
+            "down"
+          ],
+          "required": true
+        },
+        "amount": {
+          "type": "enum",
+          "values": [
+            "small",
+            "medium",
+            "large",
+            "page"
+          ],
+          "required": false,
+          "default": "medium"
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Smooth-scrolls the main content area (never the Aria panel). small=25% of viewport, medium=60%, large=150%, page=100%. At a limit, no-op and reply.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Scrolling down.",
+          "Scrolling up.",
+          "Neeche ho gaya."
+        ],
+        "not_possible": [
+          "You're at the bottom already. Want more options?",
+          "You're already at the top."
+        ]
+      }
+    },
+    {
+      "name": "scroll_to",
+      "group": "scrolling",
+      "params": {
+        "position": {
+          "type": "enum",
+          "values": [
+            "top",
+            "bottom"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Jumps to the very top or bottom of the main content area.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Back to the top.",
+          "All the way down.",
+          "Sabse upar."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "scroll_to_section",
+      "group": "scrolling",
+      "params": {
+        "section": {
+          "type": "string",
+          "required": false,
+          "description": "Section or type-group name, e.g. 'Sarees', 'Heels', 'Based on your scan', 'Best Colors'."
+        },
+        "direction": {
+          "type": "enum",
+          "values": [
+            "next",
+            "previous"
+          ],
+          "required": false
+        }
+      },
+      "screens": [
+        "recommendations",
+        "analysis_results",
+        "personalization",
+        "shopping",
+        "dashboard"
+      ],
+      "ui_behaviour": "Scrolls so the named section (or the next/previous section header) is at the top and briefly highlights its header. Exactly one of section or direction must be given.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's the {section} section.",
+          "Next section.",
+          "Yeh rahe {section}."
+        ],
+        "not_possible": [
+          "I don't see a {section} section here. Want me to search for it?"
+        ]
+      }
+    },
+    {
+      "name": "paginate",
+      "group": "scrolling",
+      "params": {
+        "direction": {
+          "type": "enum",
+          "values": [
+            "next",
+            "previous"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping",
+        "staff_requests"
+      ],
+      "ui_behaviour": "Moves to the next/previous page of a paginated product or request list and updates conversation_state.last_shown.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's the next set.",
+          "Going back to the previous set.",
+          "Agle options yeh rahe."
+        ],
+        "not_possible": [
+          "That's the last page. Want something different?",
+          "You're on the first page."
+        ]
+      }
+    },
+    {
+      "name": "load_more",
+      "group": "scrolling",
+      "params": {
+        "count": {
+          "type": "number",
+          "min": 4,
+          "max": 24,
+          "required": false,
+          "default": 12
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Appends more results to the current list (infinite-scroll style), scrolls to the first new item and appends ids to last_shown.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here are a few more.",
+          "Aur options aa gaye."
+        ],
+        "not_possible": [
+          "That's everything for these filters. Shall I widen the search?"
+        ]
+      }
+    },
+    {
+      "name": "stop_speaking",
+      "group": "voice_control",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Immediately stops TTS playback and clears the speech queue. Listening continues. Must be handled client-side with barge-in priority (no backend round trip needed).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_speech_rate",
+      "group": "voice_control",
+      "params": {
+        "rate": {
+          "type": "enum",
+          "values": [
+            "slower",
+            "faster",
+            "normal"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Adjusts Edge-TTS rate in steps of 15% (range -45% to +30%). Persists for the session; 'slower' also triggers repeat_last_reply at the new rate.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Sure, I'll speak more slowly.",
+          "Okay, a little faster.",
+          "Theek hai, dheere bolti hoon."
+        ],
+        "not_possible": [
+          "That's my slowest speed. I can also show my replies as text."
+        ]
+      }
+    },
+    {
+      "name": "set_voice_volume",
+      "group": "voice_control",
+      "params": {
+        "change": {
+          "type": "enum",
+          "values": [
+            "louder",
+            "quieter"
+          ],
+          "required": false
+        },
+        "level": {
+          "type": "number",
+          "min": 10,
+          "max": 100,
+          "unit": "percent",
+          "required": false
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Changes Aria's output volume by 15% steps or to an exact level (minimum 10% so the customer can still hear confirmations). Exactly one of change or level.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Is this better?",
+          "Okay, softer now.",
+          "Ab theek hai?"
+        ],
+        "not_possible": [
+          "That's my loudest. A staff member can turn up the speaker for you."
+        ]
+      }
+    },
+    {
+      "name": "set_voice_mute",
+      "group": "voice_control",
+      "params": {
+        "muted": {
+          "type": "bool",
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Mutes TTS output; replies still appear as on-screen captions (set_captions forced on). Listening continues.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "I'll reply in text on screen.",
+          "Voice is back on."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "show_help",
+      "group": "assistant_control",
+      "params": {
+        "screen": {
+          "type": "string",
+          "required": false,
+          "description": "Screen id; defaults to the current screen."
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Shows a large card of 6-8 example voice commands for the current screen (from intents.json utterances) plus 3 global ones. Aria reads the top 3.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "You can say things like 'show me sarees', 'like the second one', or 'add this to cart'.",
+          "Aap bol sakte hain: 'saree dikhao', 'doosra wala pasand hai', ya 'cart mein daalo'."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "show_confirmation",
+      "group": "error_recovery",
+      "params": {
+        "pending_action": {
+          "type": "object",
+          "required": true,
+          "description": "{type, params} of the action awaiting confirmation."
+        },
+        "prompt": {
+          "type": "string",
+          "required": true,
+          "description": "The question Aria speaks and shows."
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Shows a large Yes / No banner with the prompt and a 20-second countdown. Never executes anything itself.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "{prompt} Just say yes or no.",
+          "{prompt} Haan ya na boliye."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "confirm_pending_action",
+      "group": "error_recovery",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Executes conversation_state.pending_confirmation and clears it. If nothing is pending, no-op.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Done."
+        ],
+        "not_possible": [
+          "There's nothing waiting for a yes right now. What would you like to do?"
+        ]
+      }
+    },
+    {
+      "name": "cancel_pending_action",
+      "group": "error_recovery",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Clears conversation_state.pending_confirmation and hides the confirmation banner. Also cancels an in-progress multi-step flow (e.g. a countdown photo).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Okay, cancelled.",
+          "Theek hai, cancel kar diya."
+        ],
+        "not_possible": [
+          "Nothing to cancel right now."
+        ]
+      }
+    },
+    {
+      "name": "undo_last_action",
+      "group": "error_recovery",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Reverts the most recent reversible state change (filter set, like/unlike, add/remove cart item, outfit slot change, quantity change). Keeps a stack of the last 5. Cannot undo navigation (use go_back) or save_outfit.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Undone.",
+          "I've put it back the way it was."
+        ],
+        "not_possible": [
+          "There's nothing I can undo there. Want me to go back instead?"
+        ]
+      }
+    },
+    {
+      "name": "reset_session",
+      "group": "error_recovery",
+      "params": {
+        "keep_scan": {
+          "type": "bool",
+          "required": false,
+          "default": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "'Start over': clears conversation_state preferences, filters, liked items and outfit builder; keeps the scan unless keep_scan=false. Cart is kept unless the customer also asks to empty it. Returns to dashboard.",
+      "requires_confirmation": true,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Fresh start! What are we shopping for today?",
+          "Chaliye, shuru se karte hain. Kis mauke ke liye dekh rahe hain?"
+        ],
+        "not_possible": []
+      },
+      "confirmation_prompt": "Start over? Your preferences, favourites and outfit will be cleared."
+    },
+    {
+      "name": "focus_item",
+      "group": "item_focus",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping",
+        "outfit_builder",
+        "personalization"
+      ],
+      "ui_behaviour": "Highlights the item card (glow border), scrolls it into view and sets it as the deictic target for 'this one'. Relative references (next/previous) are resolved by the backend from the current highlight.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's this one.",
+          "Yeh wala dekhiye."
+        ],
+        "not_possible": [
+          "That's the last one on screen. Want to see more?",
+          "I can't find that one. Could you say its number?"
+        ]
+      }
+    },
+    {
+      "name": "close_item_detail",
+      "group": "item_focus",
+      "params": {},
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Closes the open item detail view and returns to the list with the same scroll position and highlight.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Back to the list.",
+          "List par wapas."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "zoom_item_image",
+      "group": "item_focus",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        },
+        "direction": {
+          "type": "enum",
+          "values": [
+            "in",
+            "out",
+            "reset"
+          ],
+          "required": false,
+          "default": "in"
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Opens the item image in a large lightbox and zooms 2x per step (max 4x). 'reset' returns to fit-to-screen.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Here's a closer look.",
+          "Paas se dekhiye."
+        ],
+        "not_possible": [
+          "That's the closest view I have."
+        ]
+      }
+    },
+    {
+      "name": "expand_explanation",
+      "group": "recommendations",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        },
+        "expanded": {
+          "type": "bool",
+          "required": false,
+          "default": true
+        }
+      },
+      "screens": [
+        "recommendations"
+      ],
+      "ui_behaviour": "Expands/collapses the 'Why AI picked this' panel on the card. Used alongside the explain_recommendation tool, whose output Aria reads aloud.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "{explanation}"
+        ],
+        "not_possible": [
+          "I don't have an explanation for that one yet."
+        ]
+      }
+    },
+    {
+      "name": "compare_items",
+      "group": "recommendations",
+      "params": {
+        "item_ids": {
+          "type": "list[item_id]",
+          "min_items": 2,
+          "max_items": 3,
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Opens a side-by-side comparison panel (image, colour, fabric, occasion tags, match score; price only if present in catalog data). Aria summarises the main difference.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Here they are side by side. {comparison_summary}"
+        ],
+        "not_possible": [
+          "I need two items to compare. Which two — say their numbers?"
+        ]
+      }
+    },
+    {
+      "name": "refresh_recommendations",
+      "group": "recommendations",
+      "params": {
+        "mode": {
+          "type": "enum",
+          "values": [
+            "refresh",
+            "more_like",
+            "different"
+          ],
+          "required": false,
+          "default": "refresh"
+        },
+        "anchor_item_id": {
+          "type": "item_id",
+          "required": false,
+          "description": "Required when mode is more_like."
+        }
+      },
+      "screens": [
+        "recommendations",
+        "personalization",
+        "dashboard"
+      ],
+      "ui_behaviour": "Re-runs recommend_clothes with current state. 'more_like' biases toward the anchor item's colour/style; 'different' excludes the current last_shown styles. Replaces the list and resets highlight.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's a fresh set for you.",
+          "More like that one.",
+          "Something different coming up!",
+          "Naye options yeh rahe."
+        ],
+        "not_possible": [
+          "I couldn't find more like that. Want me to loosen a filter?"
+        ]
+      }
+    },
+    {
+      "name": "like_item",
+      "group": "favourites",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping",
+        "personalization"
+      ],
+      "ui_behaviour": "Fills the heart icon on the card (Recommendations 'like' and Shopping 'wishlist' are the same list) and adds the id to conversation_state.liked_items. Liking an already-liked item is a no-op with a reply.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Added to your favourites!",
+          "Saved it for you.",
+          "Favourites mein daal diya!"
+        ],
+        "not_possible": [
+          "It's already in your favourites.",
+          "There's nothing on screen to like yet. Want to see some options?"
+        ]
+      }
+    },
+    {
+      "name": "unlike_item",
+      "group": "favourites",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping",
+        "personalization"
+      ],
+      "ui_behaviour": "Empties the heart and removes the id from liked_items. Reversible via undo_last_action, so no confirmation.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Removed from favourites.",
+          "Favourites se hata diya."
+        ],
+        "not_possible": [
+          "That one isn't in your favourites."
+        ]
+      }
+    },
+    {
+      "name": "show_liked",
+      "group": "favourites",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Opens the favourites view (a filtered product grid of liked_items) and sets last_shown to it.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here are your {count} favourites.",
+          "Aapke pasandeeda items yeh rahe."
+        ],
+        "not_possible": [
+          "You haven't liked anything yet. Just say 'like this one' when something catches your eye."
+        ]
+      }
+    },
+    {
+      "name": "clear_liked",
+      "group": "favourites",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Removes all liked items.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Remove all {count} favourites?",
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "All cleared.",
+          "Sab hata diya."
+        ],
+        "not_possible": [
+          "Your favourites list is already empty."
+        ]
+      }
+    },
+    {
+      "name": "open_cart",
+      "group": "cart",
+      "params": {},
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Opens the cart drawer from any screen (navigates to Shopping if the drawer is only available there).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's your cart — {count} items.",
+          "Aapka cart yeh raha."
+        ],
+        "not_possible": [
+          "Your cart is empty right now. Want some suggestions?"
+        ]
+      }
+    },
+    {
+      "name": "close_cart",
+      "group": "cart",
+      "params": {},
+      "screens": [
+        "shopping",
+        "global"
+      ],
+      "ui_behaviour": "Closes the cart drawer and returns focus to the page behind it.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Cart closed."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "remove_from_cart",
+      "group": "cart",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        }
+      },
+      "screens": [
+        "shopping",
+        "global"
+      ],
+      "ui_behaviour": "Removes the line item entirely. Opens the cart drawer if closed so the customer sees the change.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Remove the {item_name} from your cart?",
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Removed it from your cart.",
+          "Cart se hata diya."
+        ],
+        "not_possible": [
+          "That item isn't in your cart."
+        ]
+      }
+    },
+    {
+      "name": "set_cart_quantity",
+      "group": "cart",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        },
+        "quantity": {
+          "type": "number",
+          "min": 1,
+          "max": 10,
+          "required": false
+        },
+        "delta": {
+          "type": "number",
+          "values": [
+            -1,
+            1
+          ],
+          "required": false
+        }
+      },
+      "screens": [
+        "shopping",
+        "global"
+      ],
+      "ui_behaviour": "Sets an exact quantity or steps it by +/-1 (the +/- buttons). Exactly one of quantity or delta. A result of 0 is converted to remove_from_cart (with its confirmation). Quantity above stock is capped by the backend.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Now {quantity} of those.",
+          "Quantity {quantity} kar di."
+        ],
+        "not_possible": [
+          "That item isn't in your cart yet. Shall I add it?",
+          "I can only set up to 10 here — staff can help with bulk orders."
+        ]
+      }
+    },
+    {
+      "name": "clear_cart",
+      "group": "cart",
+      "params": {},
+      "screens": [
+        "shopping",
+        "global"
+      ],
+      "ui_behaviour": "Removes every line item and shows the empty-cart state.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Remove all {count} items from your cart?",
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Your cart is empty now.",
+          "Cart khaali kar diya."
+        ],
+        "not_possible": [
+          "Your cart is already empty."
+        ]
+      }
+    },
+    {
+      "name": "read_cart_summary",
+      "group": "cart",
+      "params": {
+        "field": {
+          "type": "enum",
+          "values": [
+            "count",
+            "total",
+            "items"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Briefly pulses the cart badge/total. Aria reads the requested value exactly as computed by the backend from catalog prices (never estimated).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "You have {count} items in your cart.",
+          "Your total is {total}.",
+          "Your cart has {item_list}."
+        ],
+        "not_possible": [
+          "Your cart is empty."
+        ]
+      }
+    },
+    {
+      "name": "reserve_item",
+      "group": "cart",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        },
+        "size": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "screens": [
+        "shopping",
+        "recommendations"
+      ],
+      "ui_behaviour": "Clicks 'Reserve' on the card: creates a hold request for staff (uses request_staff_assistance with reason 'reserve'). Hold duration and stock are confirmed by staff, never promised by Aria.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "I've asked the team to hold it for you. A staff member will confirm availability.",
+          "Staff ko reserve karne ke liye bata diya hai."
+        ],
+        "not_possible": [
+          "I couldn't place that request. Let me call someone over."
+        ]
+      }
+    },
+    {
+      "name": "send_to_fitting_room",
+      "group": "cart",
+      "params": {
+        "item_ids": {
+          "type": "list[item_id]",
+          "required": false,
+          "description": "Defaults to all cart items."
+        },
+        "size": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "screens": [
+        "shopping",
+        "global"
+      ],
+      "ui_behaviour": "Creates a 'trial room' staff request listing the items and sizes, shows a ticket card with a request number.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Done! A staff member will bring these to a trial room for you.",
+          "Trial room ke liye request bhej di hai."
+        ],
+        "not_possible": [
+          "There's nothing to send yet. Add something to your cart first?"
+        ]
+      }
+    },
+    {
+      "name": "set_department",
+      "group": "filters",
+      "params": {
+        "department": {
+          "type": "department",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Switches 'Range: Women's | Men's' and reloads results. Overrides the scan-detected department for this session only.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Showing the men's range.",
+          "Showing the women's range."
+        ],
+        "not_possible": [
+          "You're already in that range."
+        ]
+      }
+    },
+    {
+      "name": "set_category_filter",
+      "group": "filters",
+      "params": {
+        "category": {
+          "type": "category",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Selects the category chip and reloads results.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here are the {category} options.",
+          "{category} dikha rahe hain."
+        ],
+        "not_possible": [
+          "No {category} items match right now. Try another occasion?"
+        ]
+      }
+    },
+    {
+      "name": "set_occasion_filter",
+      "group": "filters",
+      "params": {
+        "occasion": {
+          "type": "occasion",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Selects the occasion chip, reloads results, and writes conversation_state.occasion.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Showing {occasion} styles.",
+          "{occasion} ke liye options."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_include_filter",
+      "group": "filters",
+      "params": {
+        "include": {
+          "type": "list[include_group]",
+          "required": true
+        },
+        "mode": {
+          "type": "enum",
+          "values": [
+            "set",
+            "add",
+            "remove"
+          ],
+          "required": false,
+          "default": "set"
+        }
+      },
+      "screens": [
+        "recommendations"
+      ],
+      "ui_behaviour": "Sets the 'What should I include?' chips. 'everything' selects all. Re-runs recommend_clothes with the include list.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "I'll include {include} too.",
+          "Got it, just {include}."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_filter",
+      "group": "filters",
+      "params": {
+        "filter": {
+          "type": "enum",
+          "values": [
+            "price",
+            "color",
+            "size",
+            "fabric",
+            "pattern"
+          ],
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true,
+          "description": "price: {min,max} in INR; color/fabric/pattern: list[string] from entities.json; size: string."
+        },
+        "mode": {
+          "type": "enum",
+          "values": [
+            "set",
+            "add",
+            "remove"
+          ],
+          "required": false,
+          "default": "set"
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Applies a non-chip filter, shows it as a removable filter pill, and reloads results. Writes the matching conversation_state field (budget, color_preferences, size...).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Only showing {value} now.",
+          "Sirf {value} dikha rahe hain."
+        ],
+        "not_possible": [
+          "Nothing matches that. Shall I relax the {filter} a little?"
+        ]
+      }
+    },
+    {
+      "name": "set_sort",
+      "group": "filters",
+      "params": {
+        "by": {
+          "type": "enum",
+          "values": [
+            "relevance",
+            "price_low_high",
+            "price_high_low",
+            "newest",
+            "popularity",
+            "match_score"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Re-orders the current list and resets highlight to the first item.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Sorted by {by}.",
+          "Sabse sasta pehle."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "clear_filters",
+      "group": "filters",
+      "params": {
+        "scope": {
+          "type": "enum",
+          "values": [
+            "all",
+            "department",
+            "category",
+            "occasion",
+            "include",
+            "price",
+            "color",
+            "size",
+            "fabric",
+            "pattern",
+            "sort"
+          ],
+          "required": false,
+          "default": "all"
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "Removes one filter or all filters (department falls back to the scan value). Reversible via undo_last_action.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Filters cleared — showing everything.",
+          "Saare filter hata diye."
+        ],
+        "not_possible": [
+          "There aren't any filters on right now."
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "group": "search",
+      "params": {
+        "query": {
+          "type": "string",
+          "required": true
+        },
+        "refine": {
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "true = narrow the current results instead of replacing the query."
+        }
+      },
+      "screens": [
+        "global"
+      ],
+      "ui_behaviour": "Types the query into the top-bar search box, runs search_inventory, navigates to Shopping results and sets last_shown.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's what I found for {query}.",
+          "{query} ke results yeh rahe."
+        ],
+        "not_possible": [
+          "I couldn't find {query}. Want to try something similar?"
+        ]
+      }
+    },
+    {
+      "name": "clear_search",
+      "group": "search",
+      "params": {},
+      "screens": [
+        "global",
+        "shopping"
+      ],
+      "ui_behaviour": "Empties the search box and restores the unfiltered Shopping grid.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Search cleared.",
+          "Search hata diya."
+        ],
+        "not_possible": [
+          "The search box is already empty."
+        ]
+      }
+    },
+    {
+      "name": "cancel_scan",
+      "group": "body_scan",
+      "params": {},
+      "screens": [
+        "body_scanner"
+      ],
+      "ui_behaviour": "Stops an in-progress scan, discards partial results and shows the start screen. Previous completed scan (if any) is kept.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Scan stopped. Say 'start scan' whenever you're ready.",
+          "Scan rok diya."
+        ],
+        "not_possible": [
+          "There's no scan running right now."
+        ]
+      }
+    },
+    {
+      "name": "read_scan_status",
+      "group": "body_scan",
+      "params": {
+        "aspect": {
+          "type": "enum",
+          "values": [
+            "progress",
+            "position",
+            "lighting"
+          ],
+          "required": false,
+          "default": "progress"
+        }
+      },
+      "screens": [
+        "body_scanner"
+      ],
+      "ui_behaviour": "Answers 'am I standing right?' / 'is it done?'. Pulses the framing guide; Aria gives one concrete correction from the pose detector (step closer, step back, move left, raise arms slightly).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Perfect, stay just like that.",
+          "Please take one small step back.",
+          "Almost done — {step} is next.",
+          "Bas thoda peeche aaiye."
+        ],
+        "not_possible": [
+          "The scan hasn't started yet. Say 'start scan' when you're ready."
+        ]
+      }
+    },
+    {
+      "name": "highlight_insight",
+      "group": "body_scan",
+      "params": {
+        "card": {
+          "type": "enum",
+          "values": [
+            "ideal_fits",
+            "color_harmony",
+            "style_profile",
+            "size_recommendation",
+            "body_shape",
+            "skin_tone",
+            "face_shape",
+            "scan_summary"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "analysis_results",
+        "profile",
+        "dashboard"
+      ],
+      "ui_behaviour": "Scrolls to and highlights the matching insight card while Aria explains it (data from get_body_profile / get_color_palette). Explanations are always neutral-positive.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "{insight_summary}"
+        ],
+        "not_possible": [
+          "I don't have scan results yet. Shall we do a quick scan?"
+        ]
+      }
+    },
+    {
+      "name": "correct_profile_field",
+      "group": "body_scan",
+      "params": {
+        "field": {
+          "type": "enum",
+          "values": [
+            "height_cm",
+            "size",
+            "department",
+            "body_shape",
+            "face_shape",
+            "skin_depth",
+            "undertone",
+            "glasses"
+          ],
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true
+        }
+      },
+      "screens": [
+        "analysis_results",
+        "profile",
+        "recommendations",
+        "global"
+      ],
+      "ui_behaviour": "Overrides a scan value with the customer's stated value (marked 'you told us' instead of a confidence tag) and refreshes recommendations. Customer-stated values always win over scan values.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Thanks, I've updated that to {value}.",
+          "Theek hai, {value} kar diya."
+        ],
+        "not_possible": [
+          "I didn't catch the value. Could you say it again?"
+        ]
+      }
+    },
+    {
+      "name": "open_trending_style",
+      "group": "dashboard",
+      "params": {
+        "style": {
+          "type": "enum",
+          "values": [
+            "quiet_luxury",
+            "coastal_grandmother",
+            "dark_academia",
+            "minimalist_chic"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "dashboard"
+      ],
+      "ui_behaviour": "Opens Recommendations pre-filtered toward the selected trend and writes it to conversation_state.style_archetype.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Here's the {style} look.",
+          "{style} style dekhiye."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "add_item_to_outfit",
+      "group": "outfit_builder",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        }
+      },
+      "screens": [
+        "recommendations",
+        "shopping"
+      ],
+      "ui_behaviour": "The 'Add to Outfit' card button: places the item into the matching Outfit Builder slot (by its category) without leaving the page; replaces any item already in that slot.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Added to your outfit as the {slot}.",
+          "Outfit mein add kar diya."
+        ],
+        "not_possible": [
+          "That type of item doesn't fit an outfit slot yet."
+        ]
+      }
+    },
+    {
+      "name": "auto_complete_outfit",
+      "group": "outfit_builder",
+      "params": {
+        "anchor_item_id": {
+          "type": "item_id",
+          "required": false
+        }
+      },
+      "screens": [
+        "outfit_builder",
+        "recommendations"
+      ],
+      "ui_behaviour": "The 'AI outfit' button: calls complete_outfit and fills only the empty slots, then updates completion % and AI match score.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Done! I've filled the rest. Your match score is {score} percent.",
+          "Poora outfit ready hai!"
+        ],
+        "not_possible": [
+          "Pick at least one piece first, and I'll build around it."
+        ]
+      }
+    },
+    {
+      "name": "clear_outfit",
+      "group": "outfit_builder",
+      "params": {},
+      "screens": [
+        "outfit_builder"
+      ],
+      "ui_behaviour": "Empties all outfit slots and the name field.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Clear the whole outfit and start again?",
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Outfit cleared.",
+          "Sab hata diya."
+        ],
+        "not_possible": [
+          "The outfit is already empty."
+        ]
+      }
+    },
+    {
+      "name": "read_outfit_stats",
+      "group": "outfit_builder",
+      "params": {
+        "stat": {
+          "type": "enum",
+          "values": [
+            "items_selected",
+            "completion",
+            "match_score",
+            "all"
+          ],
+          "required": false,
+          "default": "all"
+        }
+      },
+      "screens": [
+        "outfit_builder"
+      ],
+      "ui_behaviour": "Pulses the stats panel; Aria reads the requested values.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "You've picked {items} pieces, it's {completion} percent complete, with a {score} percent match."
+        ],
+        "not_possible": [
+          "There's nothing in the outfit yet."
+        ]
+      }
+    },
+    {
+      "name": "set_lighting",
+      "group": "virtual_tryon",
+      "params": {
+        "mode": {
+          "type": "enum",
+          "values": [
+            "natural",
+            "studio",
+            "warm",
+            "cool"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Switches the try-on lighting mode.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Switched to {mode} lighting.",
+          "{mode} light laga diya."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_tryon_zoom",
+      "group": "virtual_tryon",
+      "params": {
+        "direction": {
+          "type": "enum",
+          "values": [
+            "in",
+            "out",
+            "reset"
+          ],
+          "required": false
+        },
+        "level": {
+          "type": "number",
+          "min": 1.0,
+          "max": 3.0,
+          "required": false
+        }
+      },
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Moves the camera zoom slider by 0.25x steps or to an exact level.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Zoomed in.",
+          "Zoomed out."
+        ],
+        "not_possible": [
+          "That's the maximum zoom."
+        ]
+      }
+    },
+    {
+      "name": "flip_camera",
+      "group": "virtual_tryon",
+      "params": {},
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Mirrors/un-mirrors the camera view.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Flipped the view.",
+          "View palat diya."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "capture_photo",
+      "group": "virtual_tryon",
+      "params": {
+        "countdown_seconds": {
+          "type": "number",
+          "values": [
+            0,
+            3,
+            5
+          ],
+          "required": false,
+          "default": 3
+        }
+      },
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Shows a large on-screen countdown (spoken '3, 2, 1') then captures. Photo stays on the mirror only; it is not saved or sent anywhere unless the customer asks staff.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Smile! 3, 2, 1.",
+          "Photo ready. Want to keep it or retake?"
+        ],
+        "not_possible": [
+          "The camera isn't ready. Give it a second."
+        ]
+      }
+    },
+    {
+      "name": "retake_photo",
+      "group": "virtual_tryon",
+      "params": {
+        "countdown_seconds": {
+          "type": "number",
+          "values": [
+            0,
+            3,
+            5
+          ],
+          "required": false,
+          "default": 3
+        }
+      },
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Discards the current captured photo and immediately starts a new countdown capture. Retake implies the customer wants a new photo, so no confirmation.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Let's try again. 3, 2, 1.",
+          "Phir se lete hain."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "dismiss_photo",
+      "group": "virtual_tryon",
+      "params": {},
+      "screens": [
+        "virtual_tryon"
+      ],
+      "ui_behaviour": "Deletes the captured photo and returns to the live view.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Delete this photo?",
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Photo deleted.",
+          "Photo delete kar di."
+        ],
+        "not_possible": [
+          "There's no photo to delete."
+        ]
+      }
+    },
+    {
+      "name": "rate_item",
+      "group": "feedback",
+      "params": {
+        "item_id": {
+          "type": "item_id",
+          "required": true
+        },
+        "thumb": {
+          "type": "enum",
+          "values": [
+            "up",
+            "down"
+          ],
+          "required": false
+        },
+        "stars": {
+          "type": "number",
+          "min": 1,
+          "max": 5,
+          "required": false
+        },
+        "reason": {
+          "type": "text",
+          "required": false,
+          "description": "Optional spoken reason, e.g. 'too shiny'."
+        }
+      },
+      "screens": [
+        "personalization",
+        "recommendations"
+      ],
+      "ui_behaviour": "Sets thumbs and/or stars on a recommendation. Thumbs down adds the item to disliked_items and, if a reason is given, updates the matching preference (e.g. disliked_colors, embellishment_level).",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Thanks, noted!",
+          "Got it — I'll show less like that.",
+          "Dhanyavaad!"
+        ],
+        "not_possible": [
+          "Stars go from 1 to 5. How many would you give it?"
+        ]
+      }
+    },
+    {
+      "name": "rate_session",
+      "group": "feedback",
+      "params": {
+        "stars": {
+          "type": "number",
+          "min": 1,
+          "max": 5,
+          "required": true
+        }
+      },
+      "screens": [
+        "personalization",
+        "global"
+      ],
+      "ui_behaviour": "Sets the overall rating widget.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Thank you for the {stars} stars!",
+          "Shukriya!"
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "toggle_style_tag",
+      "group": "profile",
+      "params": {
+        "tag": {
+          "type": "string",
+          "required": true
+        },
+        "enabled": {
+          "type": "bool",
+          "required": true
+        }
+      },
+      "screens": [
+        "profile"
+      ],
+      "ui_behaviour": "Turns a style-preference tag on/off and writes it to conversation_state.style_archetype list.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "customer",
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Added {tag} to your style.",
+          "Removed {tag}."
+        ],
+        "not_possible": [
+          "I don't see a {tag} tag. The options are on screen."
+        ]
+      }
+    },
+    {
+      "name": "staff_login_start",
+      "group": "staff",
+      "params": {
+        "method": {
+          "type": "enum",
+          "values": [
+            "google",
+            "email"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "login"
+      ],
+      "ui_behaviour": "Opens the chosen sign-in flow. Passwords are NEVER accepted by voice (spoken passwords are audible to bystanders); staff type them on the staff keypad or use Google. Customers are refused.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Opening sign-in. Please type your password on the keypad, not out loud."
+        ],
+        "not_possible": [
+          "Sign-in is for store staff only. Shall I call someone to help you?"
+        ]
+      }
+    },
+    {
+      "name": "set_setting",
+      "group": "staff",
+      "params": {
+        "section": {
+          "type": "enum",
+          "values": [
+            "notifications",
+            "privacy",
+            "display"
+          ],
+          "required": true
+        },
+        "key": {
+          "type": "enum",
+          "values": [
+            "email",
+            "push",
+            "sound_alerts",
+            "outfit_reminders",
+            "weather_alerts",
+            "promotions",
+            "weekly_digest",
+            "profile_visibility",
+            "share_analytics",
+            "location_services",
+            "biometric_lock",
+            "data_sync",
+            "display_language"
+          ],
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true,
+          "description": "bool for toggles; language code for display_language."
+        }
+      },
+      "screens": [
+        "settings"
+      ],
+      "ui_behaviour": "Flips a settings toggle or sets the display language dropdown. Staff only.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "{key} is now {value}."
+        ],
+        "not_possible": [
+          "Settings are for store staff only. I can call someone if you need help."
+        ]
+      }
+    },
+    {
+      "name": "open_account_security",
+      "group": "staff",
+      "params": {
+        "item": {
+          "type": "enum",
+          "values": [
+            "change_password",
+            "two_factor_auth"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "settings"
+      ],
+      "ui_behaviour": "Opens the change-password or 2FA dialog for keypad entry. No values are taken by voice.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Opened. Please complete it on the keypad."
+        ],
+        "not_possible": [
+          "That's a staff-only setting."
+        ]
+      }
+    },
+    {
+      "name": "delete_account",
+      "group": "staff",
+      "params": {},
+      "screens": [
+        "settings"
+      ],
+      "ui_behaviour": "Danger zone. Opens the delete-account dialog; final deletion also requires staff keypad re-authentication in the UI. Voice can never complete it alone.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "This permanently deletes the account. Are you sure?",
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "full",
+      "aria_reply": {
+        "success": [
+          "Please confirm with your password on the keypad to finish."
+        ],
+        "not_possible": [
+          "That's a staff-only setting."
+        ]
+      }
+    },
+    {
+      "name": "refresh_staff_requests",
+      "group": "staff",
+      "params": {},
+      "screens": [
+        "staff_requests"
+      ],
+      "ui_behaviour": "Reloads the request queue.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "{pending_count} pending requests."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "set_staff_request_tab",
+      "group": "staff",
+      "params": {
+        "tab": {
+          "type": "enum",
+          "values": [
+            "pending",
+            "all"
+          ],
+          "required": true
+        }
+      },
+      "screens": [
+        "staff_requests"
+      ],
+      "ui_behaviour": "Switches between Pending and All tabs.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "silent",
+      "aria_reply": {
+        "success": [
+          "Showing {tab} requests."
+        ],
+        "not_possible": []
+      }
+    },
+    {
+      "name": "acknowledge_request",
+      "group": "staff",
+      "params": {
+        "request_id": {
+          "type": "string",
+          "required": true,
+          "description": "Resolved from 'first', 'the refund one', 'request 12'."
+        }
+      },
+      "screens": [
+        "staff_requests"
+      ],
+      "ui_behaviour": "Marks the request acknowledged and notifies the customer's mirror that help is on the way.",
+      "requires_confirmation": false,
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Acknowledged. The customer has been told you're coming."
+        ],
+        "not_possible": [
+          "I can't find that request."
+        ]
+      }
+    },
+    {
+      "name": "resolve_request",
+      "group": "staff",
+      "params": {
+        "request_id": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "screens": [
+        "staff_requests"
+      ],
+      "ui_behaviour": "Marks the request resolved and moves it out of Pending.",
+      "requires_confirmation": true,
+      "confirmation_prompt": "Mark request {request_id} as resolved?",
+      "allowed_roles": [
+        "staff"
+      ],
+      "reply_mode": "short",
+      "aria_reply": {
+        "success": [
+          "Marked as resolved."
+        ],
+        "not_possible": [
+          "I can't find that request."
+        ]
+      }
+    }
+  ],
+  "changes_to_existing_actions": [
+    {
+      "name": "admin_logout",
+      "change": "Set requires_confirmation true and allowed_roles ['staff'] in the intent layer; dispatch via show_confirmation first."
+    },
+    {
+      "name": "end_conversation",
+      "change": "On end, also clear session state (preferences, liked items, outfit, captured photo) so the next customer starts fresh; cart is handed to staff if non-empty."
+    },
+    {
+      "name": "escalate_to_staff",
+      "change": "Accept an optional {reason} param matching request types: discount, payment, refund, complaint, stock_issue, special_request, trial_room, alteration, gift_wrap, size_check, other."
+    },
+    {
+      "name": "navigate",
+      "change": "Param 'page' uses the page enum in param_types; 'home' maps to dashboard; staff-only pages (settings, staff_requests) are refused for customers."
+    }
+  ]
+}

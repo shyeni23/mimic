@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RiSparklingLine, RiSendPlaneFill, RiMicLine, RiStopCircleLine, RiCloseLine, RiUserLine } from 'react-icons/ri';
 import { useVoiceAgent } from '../../context/VoiceAgentContext';
+import { useAriaAction } from '../../utils/ariaBus';
 import './AriaOverlay.css';
 
 const STATUS_LABELS = {
@@ -26,6 +27,12 @@ export default function AriaOverlay() {
   const [lastBubble, setLastBubble] = useState(null);
   const messagesEndRef = useRef(null);
   const bubbleTimerRef = useRef(null);
+
+  // "Open Aria" / "minimise" / "close the chat" by voice (set_aria_panel).
+  useAriaAction(['set_aria_panel'], ({ state }) => {
+    setExpanded(state === 'open' || state === 'expand');
+    setLastBubble(null);
+  });
 
   const hidden = location.pathname === '/stylist';
   const prevAiCountRef = useRef(0);

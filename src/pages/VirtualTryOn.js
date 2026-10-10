@@ -19,6 +19,7 @@ import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import { useSession } from '../context/SessionContext';
 import { logEventNow } from '../hooks/useEventLogger';
+import { useAriaAction } from '../utils/ariaBus';
 import './VirtualTryOn.css';
 
 const LIGHTING_MODES = [
@@ -69,6 +70,24 @@ export default function VirtualTryOn() {
   const handleFlipCamera = () => {
     setIsFlipped((prev) => !prev);
   };
+
+  // Voice control (docs/dataset/new_actions.json).
+  useAriaAction(
+    ['set_lighting', 'flip_camera', 'capture_photo', 'retake_photo', 'dismiss_photo', 'set_tryon_zoom'],
+    (payload, type) => {
+      if (type === 'set_lighting' && payload.mode) setLightingMode(payload.mode);
+      else if (type === 'flip_camera') handleFlipCamera();
+      else if (type === 'dismiss_photo') handleDismissCapture();
+      else if (type === 'capture_photo' || type === 'retake_photo') {
+        if (type === 'retake_photo') handleDismissCapture();
+        const wait = (payload.countdown_seconds ?? 3) * 1000;
+        setTimeout(handleCapture, wait);
+      } else if (type === 'set_tryon_zoom') {
+        if (payload.level != null) setZoom(Math.min(3, Math.max(0.5, Number(payload.level))));
+        else setZoom((z) => Math.min(3, Math.max(0.5, z + (payload.direction === 'out' ? -0.25 : 0.25))));
+      }
+    },
+  );
 
   const getLightingOverlay = () => {
     switch (lightingMode) {

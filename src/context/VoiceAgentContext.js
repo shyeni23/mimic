@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSession } from './SessionContext';
 import { useTheme } from './ThemeContext';
 import { useAuth } from './AuthContext';
 import { PresenceState } from '../hooks/usePersonPresence';
 import { apiPostJSON, apiPost, API_BASE_URL } from '../utils/api';
+import { emitAriaAction } from '../utils/ariaBus';
 
 // "off" disables spoken replies (see playTTS). Anything else = voice on.
 const ARIA_VOICE_ENABLED = (process.env.REACT_APP_ARIA_VOICE || 'on').toLowerCase() !== 'off';
@@ -17,14 +18,54 @@ const SILENCE_STOP_MS = 1200;
 const MIN_SPEECH_MS = 300;
 const MAX_RECORDING_MS = 15000;
 
+// Dataset page names (docs/dataset/new_actions.json) -> app routes.
+const PAGE_ROUTES = {
+  home: 'dashboard', dashboard: 'dashboard', body_scanner: 'body-scanner',
+  analysis_results: 'analysis-results', recommendations: 'recommendations',
+  ai_stylist: 'stylist', stylist: 'stylist', outfit_builder: 'outfit-builder',
+  virtual_tryon: 'virtual-tryon', personalization: 'personalization', shopping: 'shopping',
+  profile: 'profile', staff_assistance: 'staff-requests', staff_requests: 'staff-requests',
+  settings: 'settings',
+};
+const routeFor = (page) => PAGE_ROUTES[String(page || '').replace(/-/g, '_')] || String(page || 'dashboard');
+
+// Actions a specific screen owns -- forwarded to it over the action bus.
+const PAGE_ACTIONS = {
+  set_category_filter: null, set_occasion_filter: null, clear_filters: null, set_department: 'recommendations',
+  set_include_filter: 'recommendations', expand_explanation: 'recommendations',
+  search: 'shopping', clear_search: 'shopping', show_liked: 'shopping',
+  set_lighting: 'virtual-tryon', flip_camera: 'virtual-tryon', capture_photo: 'virtual-tryon',
+  retake_photo: 'virtual-tryon', dismiss_photo: 'virtual-tryon', set_tryon_zoom: 'virtual-tryon',
+  paginate: null, load_more: null,
+};
+
+// Whatever actually scrolls: MainLayout's <main class="page-content"> on
+// layouts where it has its own scrollbar, otherwise the page itself.
+// Depends on screen width (on some layouts it's <body>), so walk up from the
+// content area to the first element that really scrolls.
+const scrollArea = () => {
+  for (let el = document.querySelector('.page-content'); el; el = el.parentElement) {
+    const canScroll = ['auto', 'scroll'].includes(getComputedStyle(el).overflowY)
+      || el === document.scrollingElement;
+    if (canScroll && el.scrollHeight > el.clientHeight + 4) return el;
+  }
+  return document.scrollingElement || document.documentElement;
+};
+const SCROLL_AMOUNTS = { small: 0.25, medium: 0.6, large: 1.5, page: 1.0 };
+
 export function VoiceAgentProvider({ children }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
-    sessionId, setPendingRecommendations, setHighlightedItemId,
-    addToCart, queueOutfitActions, showToast, presenceState,
+    sessionId, setPendingRecommendations, setHighlightedItemId, highlightedItemId,
+    addToCart, removeFromCart, setCartQuantity, clearCart, setCartOpen, cart,
+    liked, likeItem, unlikeItem, clearLiked, registerItems, screenItems,
+    queueOutfitActions, showToast, presenceState,
     conversationGreeting, registerVoiceCallbacks,
   } = useSession();
-  const { toggleTheme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
+  // "Mute your voice" -- replies still appear as text on screen.
+  const voiceMutedRef = useRef(false);
   const { logout } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -64,7 +105,7 @@ export function VoiceAgentProvider({ children }) {
     // text replies, toasts and on-screen actions untouched. Every TTS call in
     // the app routes through here (SessionContext uses the registered
     // callback), so this is the single place to gate it.
-    if (ARIA_VOICE_ENABLED === false) return;
+    if (ARIA_VOICE_ENABLED === false || voiceMutedRef.current) return;
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
@@ -99,9 +140,98 @@ export function VoiceAgentProvider({ children }) {
         }
         continue;
       }
+      const p = action.payload || {};
+      if (action.type in PAGE_ACTIONS) {
+        // Page-owned action: open the owning screen if needed, then hand it over.
+        const owner = PAGE_ACTIONS[action.type];
+        if (owner && location.pathname !== `/${owner}`) navigate(`/${owner}`);
+        emitAriaAction(action);
+        continue;
+      }
       switch (action.type) {
         case 'navigate':
-          navigate(`/${action.payload?.page || 'dashboard'}`);
+          navigate(`/${routeFor(p.page)}`);
+          break;
+        case 'go_back':
+          navigate(-1);
+          break;
+        case 'go_forward':
+          navigate(1);
+          break;
+        case 'scroll': {
+          const el = scrollArea();
+          const step = window.innerHeight * (SCROLL_AMOUNTS[p.amount] || SCROLL_AMOUNTS.medium);
+          el.scrollBy({ top: p.direction === 'up' ? -step : step, behavior: 'smooth' });
+          break;
+        }
+        case 'scroll_to': {
+          const el = scrollArea();
+          el.scrollTo({ top: p.position === 'bottom' ? el.scrollHeight : 0, behavior: 'smooth' });
+          break;
+        }
+        case 'stop_speaking':
+          if (currentAudioRef.current) {
+            currentAudioRef.current.pause();
+            currentAudioRef.current = null;
+          }
+          setIsSpeaking(false);
+          break;
+        case 'set_voice_mute':
+          voiceMutedRef.current = !!p.muted;
+          if (p.muted && currentAudioRef.current) {
+            currentAudioRef.current.pause();
+            currentAudioRef.current = null;
+            setIsSpeaking(false);
+          }
+          break;
+        case 'set_theme':
+          if (p.mode && p.mode !== theme) toggleTheme();
+          break;
+        case 'set_hands_free':
+          setHandsFreeMode(!!p.enabled);
+          break;
+        case 'toggle_sidebar':
+        case 'set_aria_panel':
+        case 'show_confirmation':
+        case 'hide_confirmation':
+        case 'show_help':
+          emitAriaAction(action);   // MainLayout / AriaOverlay render these
+          break;
+        case 'focus_item':
+          setHighlightedItemId(p.item_id || null);
+          emitAriaAction(action);   // the open list scrolls the card into view
+          break;
+        case 'like_item':
+          likeItem(p.item || p.item_id);
+          showToast('Added to your favourites', 'success');
+          break;
+        case 'unlike_item':
+          unlikeItem(p.item_id);
+          showToast('Removed from favourites', 'info');
+          break;
+        case 'clear_liked':
+          clearLiked();
+          break;
+        case 'open_cart':
+          if (location.pathname !== '/shopping') navigate('/shopping');
+          setCartOpen(true);
+          break;
+        case 'close_cart':
+          setCartOpen(false);
+          break;
+        case 'remove_from_cart':
+          removeFromCart(p.item_id);
+          setCartOpen(true);
+          break;
+        case 'set_cart_quantity':
+          setCartQuantity(p.item_id, { quantity: p.quantity, delta: p.delta });
+          setCartOpen(true);
+          break;
+        case 'clear_cart':
+          clearCart();
+          break;
+        case 'read_cart_summary':
+          setCartOpen(true);
           break;
         case 'start_scan':
           navigate('/body-scanner');
@@ -109,6 +239,7 @@ export function VoiceAgentProvider({ children }) {
         case 'show_recommendations':
           // Whole payload: {results, sections?} -- sections present for the
           // post-scan complete look (see Recommendations.js).
+          registerItems(action.payload?.results || []);
           setPendingRecommendations({
             results: action.payload?.results || [],
             sections: action.payload?.sections || null,
@@ -117,10 +248,11 @@ export function VoiceAgentProvider({ children }) {
           break;
         case 'show_item':
           setHighlightedItemId(action.payload?.item_id || null);
-          navigate('/recommendations');
+          if (!['/recommendations', '/shopping'].includes(location.pathname)) navigate('/recommendations');
+          emitAriaAction({ type: 'focus_item', payload: action.payload });
           break;
         case 'add_to_cart':
-          addToCart(action.payload?.item_id);
+          addToCart(action.payload?.item || action.payload?.item_id);
           showToast('Added to your fitting room', 'success');
           break;
         case 'start_tryon':
@@ -159,7 +291,21 @@ export function VoiceAgentProvider({ children }) {
       queueOutfitActions(outfitBatch);
       navigate('/outfit-builder');
     }
-  }, [navigate, setPendingRecommendations, setHighlightedItemId, addToCart, queueOutfitActions, showToast, toggleTheme, logout]);
+  }, [navigate, location.pathname, setPendingRecommendations, setHighlightedItemId, addToCart, removeFromCart,
+      setCartQuantity, clearCart, setCartOpen, likeItem, unlikeItem, clearLiked, registerItems,
+      queueOutfitActions, showToast, theme, toggleTheme, logout]);
+
+  // What's on the customer's screen, sent with every message so Aria can
+  // resolve "remove the second item from my cart", "this one", cart totals
+  // and which page's filter to change.
+  const clientStateRef = useRef({});
+  clientStateRef.current = {
+    page: location.pathname.replace(/^\//, '') || 'dashboard',
+    highlighted_item_id: highlightedItemId || null,
+    cart: (cart || []).map((i) => ({ id: String(i.id), name: i.name, price: i.price || 0, quantity: i.quantity })),
+    liked: Object.values(liked || {}).map((i) => ({ id: String(i.id), name: i.name })),
+    screen_items: (screenItems || []).slice(0, 60),
+  };
 
   // Register callbacks so SessionContext.fireAgentEvent delegates TTS/messages here
   useEffect(() => {
@@ -228,7 +374,7 @@ export function VoiceAgentProvider({ children }) {
       const res = await fetch(`${API_BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, message: text.trim() }),
+        body: JSON.stringify({ session_id: sessionId, message: text.trim(), client_state: clientStateRef.current }),
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
@@ -295,6 +441,8 @@ export function VoiceAgentProvider({ children }) {
         ));
       }
 
+      // Silent actions ("stop talking") have no reply -- drop the empty bubble.
+      if (!finalReply) setMessages(prev => prev.filter(m => m.id !== aiMsgId));
       handleActions(finalActions);
       if (fromVoice && finalReply) playTTS(finalReply);
     } catch (err) {

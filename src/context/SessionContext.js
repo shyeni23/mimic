@@ -25,13 +25,72 @@ export function SessionProvider({ children }) {
   // reply with text. See AIStylist.js's handleActions().
   const [pendingRecommendations, setPendingRecommendations] = useState(null);
   const [highlightedItemId, setHighlightedItemId] = useState(null);
-  const [cartItems, setCartItems] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [pendingOutfitActions, setPendingOutfitActions] = useState([]);
 
-  const addToCart = useCallback((itemId) => {
-    setCartItems((prev) => (prev.includes(itemId) ? prev : [...prev, itemId]));
+  // ONE cart and ONE liked list for the whole app. Aria's voice actions,
+  // the Recommendations hearts and the Shopping page all read and write
+  // these -- they used to be three separate lists, so a saree added by
+  // voice never appeared in the Shopping cart drawer.
+  const [cart, setCart] = useState([]);            // [{id, name, price, image_url, category, color, quantity}]
+  const [liked, setLiked] = useState({});          // {id: item}
+  const [cartOpen, setCartOpen] = useState(false);
+  // The product list currently on screen, in display order -- sent to Aria
+  // so "the second one" means the second card the customer is looking at.
+  const [screenItems, setScreenItems] = useState([]);
+  // Item details by id, filled from every product list the app shows, so an
+  // action that only carries an item_id can still render a cart line.
+  const itemCacheRef = useRef({});
+  const registerItems = useCallback((items) => {
+    (items || []).forEach((it) => {
+      if (it && it.id != null) itemCacheRef.current[String(it.id)] = { ...itemCacheRef.current[String(it.id)], ...it };
+    });
   }, []);
+  const resolveItem = useCallback((itemOrId) => {
+    if (itemOrId && typeof itemOrId === 'object') {
+      registerItems([itemOrId]);
+      return itemCacheRef.current[String(itemOrId.id)];
+    }
+    return itemCacheRef.current[String(itemOrId)] || { id: String(itemOrId), name: 'Selected item' };
+  }, [registerItems]);
+
+  const addToCart = useCallback((itemOrId) => {
+    const item = resolveItem(itemOrId);
+    setCart((prev) => {
+      const existing = prev.find((i) => String(i.id) === String(item.id));
+      if (existing) {
+        return prev.map((i) => (String(i.id) === String(item.id) ? { ...i, quantity: i.quantity + 1 } : i));
+      }
+      return [...prev, { ...item, quantity: 1 }];
+    });
+  }, [resolveItem]);
+  const removeFromCart = useCallback((id) => {
+    setCart((prev) => prev.filter((i) => String(i.id) !== String(id)));
+  }, []);
+  // {quantity} sets an exact amount, {delta} steps it; 0 or less removes it.
+  const setCartQuantity = useCallback((id, { quantity, delta } = {}) => {
+    setCart((prev) => prev
+      .map((i) => {
+        if (String(i.id) !== String(id)) return i;
+        const next = quantity != null ? Number(quantity) : i.quantity + Number(delta || 0);
+        return { ...i, quantity: Math.min(next, 10) };
+      })
+      .filter((i) => i.quantity > 0));
+  }, []);
+  const clearCart = useCallback(() => setCart([]), []);
+
+  const likeItem = useCallback((itemOrId) => {
+    const item = resolveItem(itemOrId);
+    setLiked((prev) => ({ ...prev, [String(item.id)]: item }));
+  }, [resolveItem]);
+  const unlikeItem = useCallback((id) => {
+    setLiked((prev) => {
+      const next = { ...prev };
+      delete next[String(id)];
+      return next;
+    });
+  }, []);
+  const clearLiked = useCallback(() => setLiked({}), []);
 
   const pendingOutfitActionsRef = useRef([]);
   pendingOutfitActionsRef.current = pendingOutfitActions;
@@ -139,6 +198,10 @@ export function SessionProvider({ children }) {
 
   const resetSession = useCallback(() => {
     setScanData(null);
+    // New customer -> nothing carried over from the previous one.
+    setCart([]);
+    setLiked({});
+    setCartOpen(false);
     return createSession();
   }, [createSession]);
 
@@ -191,7 +254,9 @@ export function SessionProvider({ children }) {
         sessionId, scanData, setScanData, loading, error, resetSession,
         pendingRecommendations, setPendingRecommendations,
         highlightedItemId, setHighlightedItemId,
-        cartItems, addToCart,
+        cart, addToCart, removeFromCart, setCartQuantity, clearCart, cartOpen, setCartOpen,
+        liked, likeItem, unlikeItem, clearLiked, registerItems,
+        screenItems, setScreenItems,
         pendingOutfitActions, queueOutfitActions, consumeOutfitActions,
         toasts, showToast, dismissToast,
         fireAgentEvent, registerVoiceCallbacks,

@@ -25,6 +25,7 @@ import FilterChips from '../components/Common/FilterChips';
 import { apiGetJSON } from '../utils/api';
 import { useSession } from '../context/SessionContext';
 import { logEventNow, useImpressionLogger } from '../hooks/useEventLogger';
+import { useAriaAction } from '../utils/ariaBus';
 import './Shopping.css';
 
 const EMOJI_BY_CATEGORY = {
@@ -50,13 +51,14 @@ const cardVariants = {
 
 /** Extracted so useImpressionLogger can attach its own IntersectionObserver
  * per card -- hooks can't be called inside a .map() body in the parent. */
-const ProductCard = ({ product, sessionId, wishlisted, onWishlist, onAddToCart, onReserve, formatPrice, emoji }) => {
+const ProductCard = ({ product, sessionId, wishlisted, highlighted, onWishlist, onAddToCart, onReserve, formatPrice, emoji }) => {
   const cardRef = useRef(null);
   useImpressionLogger(sessionId, product.id, cardRef);
   return (
     <motion.div
       ref={cardRef}
-      className="product-card"
+      className={`product-card${highlighted ? ' product-card-highlighted' : ''}`}
+      data-item-id={product.id}
       variants={cardVariants}
       initial="hidden"
       animate="visible"
@@ -109,7 +111,11 @@ const ProductCard = ({ product, sessionId, wishlisted, onWishlist, onAddToCart, 
 };
 
 const Shopping = () => {
-  const { sessionId, fireAgentEvent } = useSession();
+  const {
+    sessionId, fireAgentEvent, cart, addToCart: addToSharedCart, removeFromCart, setCartQuantity,
+    cartOpen, setCartOpen, liked, likeItem, unlikeItem, registerItems, setScreenItems,
+    highlightedItemId, setHighlightedItemId,
+  } = useSession();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,9 +123,10 @@ const Shopping = () => {
   const [activeFilter, setActiveFilter] = useState('All');
   const [occasions, setOccasions] = useState([]);
   const [activeOccasion, setActiveOccasion] = useState('All');
-  const [cart, setCart] = useState([]);
-  const [wishlist, setWishlist] = useState([]);
-  const [cartOpen, setCartOpen] = useState(false);
+  // Cart, liked list and cart drawer are shared app-wide (SessionContext),
+  // so voice actions and the Recommendations hearts see the same state.
+  const [favouritesOnly, setFavouritesOnly] = useState(false);
+  const [limit, setLimit] = useState(48);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -127,14 +134,14 @@ const Shopping = () => {
       const catParam = activeFilter !== 'All' ? `&category=${encodeURIComponent(activeFilter)}` : '';
       const occasionParam = activeOccasion !== 'All' ? `&occasion=${encodeURIComponent(activeOccasion)}` : '';
       const searchParam = searchQuery.trim() ? `&search=${encodeURIComponent(searchQuery)}` : '';
-      const data = await apiGetJSON(`/api/inventory/browse?limit=50${catParam}${occasionParam}${searchParam}`);
+      const data = await apiGetJSON(`/api/inventory/browse?limit=${limit}${catParam}${occasionParam}${searchParam}`);
       setProducts(data.items || []);
     } catch (err) {
       console.error('Failed to load inventory:', err);
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, activeOccasion, searchQuery]);
+  }, [activeFilter, activeOccasion, searchQuery, limit]);
 
   useEffect(() => {
     const timer = setTimeout(loadProducts, searchQuery ? 300 : 0);
@@ -164,49 +171,91 @@ const Shopping = () => {
   const occasionOptions = useMemo(() => occasions, [occasions]);
 
   const addToCart = (product) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      }
-      return [...prev, { ...product, quantity: 1 }];
-    });
+    addToSharedCart(product);
     setCartOpen(true);
     logEventNow(sessionId, product.id, 'add_to_cart', { source: 'shopping', category: product.category });
     // Proactive engagement: let Aria notice and suggest a matching item.
     // Only on first-time adds (not quantity bumps) so we don't spam.
-    if (fireAgentEvent && !cart.find((item) => item.id === product.id)) {
+    if (fireAgentEvent && !cart.find((item) => String(item.id) === String(product.id))) {
       fireAgentEvent('cart_item_added');
     }
   };
 
-  const removeFromCart = (productId) => {
-    setCart((prev) => prev.filter((item) => item.id !== productId));
-  };
-
-  const updateCartQuantity = (productId, delta) => {
-    setCart((prev) =>
-      prev
-        .map((item) =>
-          item.id === productId
-            ? { ...item, quantity: Math.max(0, item.quantity + delta) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
-  };
+  const updateCartQuantity = (productId, delta) => setCartQuantity(productId, { delta });
 
   const toggleWishlist = (productId) => {
-    const wasWishlisted = wishlist.includes(productId);
-    setWishlist((prev) =>
-      wasWishlisted ? prev.filter((id) => id !== productId) : [...prev, productId]
-    );
+    const wasWishlisted = !!liked[String(productId)];
+    if (wasWishlisted) unlikeItem(productId);
+    else likeItem(products.find((p) => String(p.id) === String(productId)) || productId);
     logEventNow(sessionId, productId, wasWishlisted ? 'dismiss' : 'click', {
       source: 'shopping', action: 'wishlist_toggle',
     });
   };
+
+  // Favourites view ("show my favourites") shows the shared liked list.
+  const shownProducts = useMemo(
+    () => (favouritesOnly ? Object.values(liked) : products),
+    [favouritesOnly, liked, products],
+  );
+
+  useEffect(() => {
+    registerItems(products);
+  }, [products, registerItems]);
+
+  useEffect(() => {
+    setScreenItems(shownProducts.map((p) => ({ id: String(p.id), name: p.name, color: p.color })));
+  }, [shownProducts, setScreenItems]);
+
+  // Voice control (docs/dataset/new_actions.json).
+  const matchChip = (options, value) => {
+    if (!value || value === 'all') return 'All';
+    return options.find((o) => o.toLowerCase() === String(value).toLowerCase()) || 'All';
+  };
+  useAriaAction(
+    ['set_category_filter', 'set_occasion_filter', 'clear_filters', 'search', 'clear_search',
+      'show_liked', 'focus_item', 'load_more', 'paginate'],
+    (payload, type) => {
+      switch (type) {
+        case 'set_category_filter':
+          setFavouritesOnly(false);
+          setActiveFilter(matchChip(categories, payload.category));
+          break;
+        case 'set_occasion_filter':
+          setFavouritesOnly(false);
+          setActiveOccasion(matchChip(occasions, payload.occasion));
+          break;
+        case 'clear_filters':
+          setFavouritesOnly(false);
+          if (!payload.scope || payload.scope === 'all' || payload.scope === 'category') setActiveFilter('All');
+          if (!payload.scope || payload.scope === 'all' || payload.scope === 'occasion') setActiveOccasion('All');
+          if (!payload.scope || payload.scope === 'all') setSearchQuery('');
+          break;
+        case 'search':
+          setFavouritesOnly(false);
+          setSearchQuery((q) => (payload.refine && q ? `${q} ${payload.query}` : payload.query || ''));
+          break;
+        case 'clear_search':
+          setSearchQuery('');
+          break;
+        case 'show_liked':
+          setFavouritesOnly(true);
+          break;
+        case 'load_more':
+        case 'paginate':
+          if (type === 'load_more' || payload.direction !== 'previous') setLimit((l) => l + (payload.count || 24));
+          break;
+        case 'focus_item':
+          setHighlightedItemId(payload.item_id || null);
+          setTimeout(() => {
+            document.querySelector(`[data-item-id="${payload.item_id}"]`)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 150);
+          break;
+        default:
+          break;
+      }
+    },
+  );
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -269,6 +318,16 @@ const Shopping = () => {
             </button>
           )}
         </div>
+        {favouritesOnly && (
+          <div className="filter-row">
+            <RiHeartFill className="filter-icon" />
+            <FilterChips
+              filters={['Favourites', 'Show all']}
+              activeFilter="Favourites"
+              onSelect={(f) => setFavouritesOnly(f === 'Favourites')}
+            />
+          </div>
+        )}
         <div className="filter-row">
           <RiFilterLine className="filter-icon" />
           <FilterChips
@@ -298,12 +357,13 @@ const Shopping = () => {
             </motion.div>
           ) : (
             <AnimatePresence mode="popLayout">
-              {products.map((product) => (
+              {shownProducts.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   sessionId={sessionId}
-                  wishlisted={wishlist.includes(product.id)}
+                  wishlisted={!!liked[String(product.id)]}
+                  highlighted={String(product.id) === String(highlightedItemId)}
                   onWishlist={toggleWishlist}
                   onAddToCart={addToCart}
                   onReserve={(p) => logEventNow(sessionId, p.id, 'click', { source: 'shopping', action: 'reserve' })}
@@ -314,11 +374,11 @@ const Shopping = () => {
             </AnimatePresence>
           )}
 
-          {!loading && products.length === 0 && (
+          {!loading && shownProducts.length === 0 && (
             <motion.div className="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <RiSearchLine className="no-results-icon" />
-              <h3>No products found</h3>
-              <p>Try adjusting your search or filters</p>
+              <h3>{favouritesOnly ? 'No favourites yet' : 'No products found'}</h3>
+              <p>{favouritesOnly ? 'Say "like this one" when something catches your eye' : 'Try adjusting your search or filters'}</p>
             </motion.div>
           )}
         </div>

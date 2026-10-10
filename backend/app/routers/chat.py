@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.services.voice.nlp_extract import extract_context
 from app.services.agent.graph import run_agent_turn, stream_agent_turn
 from app.services.agent.preferences import extract_prior_preferences
+from app.services.agent.ui_commands import ui_command_turn
 from app.services.agent.shopping_intent import (
     scan_first_turn, show_request_turn, closing_turn, item_choice_turn,
 )
@@ -30,9 +31,15 @@ def _pre_agent_turn(req: ChatRequest, prior_preferences: dict) -> dict | None:
     shows only the items asked for."""
     if req.role != "customer":
         return None
-    return (closing_turn(req.message)
+    state = req.client_state or {}
+    # "the second one" means the second card on THIS screen when we know it.
+    on_screen = dict(prior_preferences)
+    if state.get("screen_items"):
+        on_screen["last_shown"] = state["screen_items"]
+    return (ui_command_turn(req.message, prior_preferences, state)
+            or closing_turn(req.message)
             # before the shopping rules: "add the first saree" names a garment too
-            or item_choice_turn(req.session_id, req.message, prior_preferences)
+            or item_choice_turn(req.session_id, req.message, on_screen)
             or scan_first_turn(req.session_id, req.message, prior_preferences, _has_scan(req.session_id))
             or show_request_turn(req.session_id, req.message, prior_preferences))
 

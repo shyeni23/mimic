@@ -61,6 +61,9 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     role: str = "customer"   # "customer" | "admin" -- controls which tools/actions the agent may use
+    # What's on the customer's screen (page, highlighted item, on-screen list,
+    # cart, liked) -- see services/agent/ui_commands.py.
+    client_state: dict | None = None
 
 
 class AgentEventRequest(BaseModel):

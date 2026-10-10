@@ -9,6 +9,7 @@ import {
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import FilterChips from '../components/Common/FilterChips';
+import { useAriaAction } from '../utils/ariaBus';
 import { useSession } from '../context/SessionContext';
 import { apiPostJSON, apiGetJSON } from '../utils/api';
 import { logEvent, logEventNow } from '../hooks/useEventLogger';
@@ -81,12 +82,14 @@ export default function Recommendations() {
     sessionId, scanData, setScanData,
     pendingRecommendations, setPendingRecommendations,
     highlightedItemId, setHighlightedItemId,
-    fireAgentEvent,
+    fireAgentEvent, liked, likeItem, unlikeItem, registerItems, setScreenItems,
   } = useSession();
   const [activeFilter, setActiveFilter] = useState('All');
   const [occasions, setOccasions] = useState(DEFAULT_OCCASIONS);
   const [activeOccasion, setActiveOccasion] = useState('All');
-  const [favorites, setFavorites] = useState({});
+  // Hearts use the app-wide liked list (same one as Shopping's wishlist and
+  // Aria's "like the second one").
+  const favorites = liked;
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -241,9 +244,10 @@ export default function Recommendations() {
 
   const toggleFavorite = (id, product) => {
     markInteraction();
-    const willFavorite = !favorites[id];
+    const willFavorite = !favorites[String(id)];
     if (willFavorite) notifyLiked(product);
-    setFavorites((prev) => ({ ...prev, [id]: !prev[id] }));
+    if (willFavorite) likeItem(product);
+    else unlikeItem(id);
     logEventNow(sessionId, id, willFavorite ? 'click' : 'dismiss', {
       source: 'recommendations', action: 'favorite_toggle',
     });
@@ -279,6 +283,66 @@ export default function Recommendations() {
 
   const noScan = !scanData;
 
+  // Share what's on screen: item details for the cart, and the display order
+  // so "the second one" means the second card she sees.
+  useEffect(() => {
+    registerItems(products);
+    setScreenItems(products.map((p) => ({ id: String(p.id), name: p.name, color: p.color })));
+  }, [products, registerItems, setScreenItems]);
+
+  // Voice control (docs/dataset/new_actions.json).
+  const CATEGORY_CHIP = {
+    all: 'All', top: 'Tops', bottom: 'Bottoms', dress: 'Dresses', footwear: 'Shoes',
+    bag: 'Bags', watch: 'Watches', jewelry: 'Jewellery', accessory: 'Accessories',
+  };
+  const INCLUDE_KEY = {
+    clothes: 'clothes', footwear: 'footwear', bags: 'bag', bag: 'bag', watches: 'watch', watch: 'watch',
+    jewellery: 'jewelry', jewelry: 'jewelry', accessories: 'accessory', accessory: 'accessory',
+  };
+  useAriaAction(
+    ['set_category_filter', 'set_occasion_filter', 'set_department', 'set_include_filter',
+      'clear_filters', 'focus_item', 'expand_explanation'],
+    (payload, type) => {
+      switch (type) {
+        case 'set_category_filter':
+          setActiveFilter(CATEGORY_CHIP[payload.category] || 'All');
+          break;
+        case 'set_occasion_filter': {
+          const want = String(payload.occasion || 'all').toLowerCase();
+          setActiveOccasion(occasions.find((o) => o.toLowerCase() === want) || 'All');
+          break;
+        }
+        case 'set_department':
+          // eslint-disable-next-line no-use-before-define
+          chooseGender(payload.department === 'men' || payload.department === 'male' ? 'male' : 'female');
+          break;
+        case 'set_include_filter': {
+          const keys = (payload.include || []).flatMap((k) => (k === 'everything' ? [] : [INCLUDE_KEY[k] || k]));
+          if ((payload.include || []).includes('everything')) setIncludeKeys([]);
+          else if (payload.mode === 'add') setIncludeKeys((prev) => [...new Set([...prev, ...keys])]);
+          else if (payload.mode === 'remove') setIncludeKeys((prev) => prev.filter((k) => !keys.includes(k)));
+          else setIncludeKeys(keys);
+          break;
+        }
+        case 'clear_filters':
+          setActiveFilter('All');
+          setActiveOccasion('All');
+          setIncludeKeys([]);
+          break;
+        case 'focus_item':
+        case 'expand_explanation':
+          if (payload.item_id) setHighlightedItemId(payload.item_id);
+          setTimeout(() => {
+            document.querySelector('.rec-product-highlighted')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 150);
+          break;
+        default:
+          break;
+      }
+    },
+  );
+
   const renderCard = (product, index) => (
           <GlassCard
             key={product.id}
@@ -295,11 +359,11 @@ export default function Recommendations() {
                 <span>{product.confidence}% Match</span>
               </div>
               <motion.button
-                className={`rec-heart-btn ${favorites[product.id] ? 'active' : ''}`}
+                className={`rec-heart-btn ${favorites[String(product.id)] ? 'active' : ''}`}
                 onClick={() => toggleFavorite(product.id, product)}
                 whileTap={{ scale: 0.8 }}
               >
-                {favorites[product.id] ? <RiHeartFill /> : <RiHeartLine />}
+                {favorites[String(product.id)] ? <RiHeartFill /> : <RiHeartLine />}
               </motion.button>
             </div>
 

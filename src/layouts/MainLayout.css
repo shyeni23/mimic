@@ -29,3 +29,58 @@
     padding-bottom: calc(var(--bottom-nav-height) + 16px);
   }
 }
+
+/* Voice confirmation ("Are you sure? Say yes or no") and help card --
+   large and centred because the mirror is used from a distance, hands-free. */
+.voice-confirm-banner {
+  position: fixed;
+  top: 24px;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: fit-content;
+  z-index: 2000;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 18px 28px;
+  border-radius: 16px;
+  background: var(--glass-bg, rgba(20, 20, 40, 0.92));
+  border: 2px solid var(--primary, #6c63ff);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+.voice-confirm-banner p {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+.voice-confirm-banner span {
+  font-size: 1rem;
+  color: var(--text-secondary, #c9c9d9);
+}
+.voice-help-card {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  z-index: 2000;
+  width: min(520px, calc(100vw - 32px));
+  padding: 24px 28px;
+  border-radius: 18px;
+  background: var(--glass-bg, rgba(20, 20, 40, 0.95));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(14px);
+  color: var(--text-primary, #fff);
+}
+.voice-help-card h3 {
+  margin: 0 0 12px;
+  font-size: 1.3rem;
+}
+.voice-help-card ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.9;
+  font-size: 1.05rem;
+}
