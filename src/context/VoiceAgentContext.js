@@ -313,6 +313,26 @@ export function VoiceAgentProvider({ children }) {
           addToCart(action.payload?.item || action.payload?.item_id);
           showToast('Added to your fitting room', 'success');
           break;
+        case 'add_to_wardrobe':
+          try { await apiPostJSON('/api/wardrobe/add', { session_id: sessionId, item_id: p.item_id }); }
+          catch (err) { console.warn('[voice] wardrobe add failed', err); }
+          showToast('Saved to your wardrobe', 'success');
+          break;
+        case 'show_wardrobe':
+          navigate('/personalization');
+          showToast('Showing your wardrobe', 'info');
+          break;
+        case 'suggest_from_wardrobe':
+          try {
+            const data = await apiPostJSON(`/api/wardrobe/${sessionId}/complete`, {});
+            if (data?.results?.length) {
+              setPendingRecommendations({ results: data.results, sections: null });
+              navigate('/recommendations');
+            } else {
+              showToast('Save some items to your wardrobe first', 'info');
+            }
+          } catch (err) { showToast('Could not match wardrobe', 'error'); }
+          break;
         case 'start_tryon': {
           // Resolve the id to an item (so TryOnMirror has image + category),
           // then open the page. The page reads it from SessionContext.

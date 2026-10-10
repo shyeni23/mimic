@@ -656,6 +656,8 @@ _SCREEN_ACTIONS = {
     "set_captions", "undo_last_action",
     # Staff screen (role-gated by the UI)
     "refresh_staff_requests", "set_staff_request_tab", "acknowledge_request", "resolve_request",
+    # Wardrobe
+    "add_to_wardrobe", "remove_from_wardrobe", "show_wardrobe", "suggest_from_wardrobe",
 }
 # Irreversible: shown as a yes/no banner; the customer's "yes" runs it
 # (ui_commands._confirmation_turn).

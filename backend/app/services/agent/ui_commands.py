@@ -445,6 +445,19 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
             d = "out" if "zoom out" in t else "in"
             return _turn(f"Zoomed {d}.", [("set_tryon_zoom", {"direction": d})], prefs)
 
+    # --- wardrobe (I already own this / what goes with my wardrobe)
+    if re.search(r"\b(i (already )?(own|have|wear) (this|that|it|them)|add (this|it|that) to (my )?wardrobe|save (this|it) to (my )?wardrobe)\b", t):
+        item = _resolve(t, screen, highlighted) or (
+            next((i for i in screen if str(i.get("id")) == highlighted), None) if highlighted else None)
+        if item:
+            return _turn(f"Saved the {item.get('name')} to your wardrobe.",
+                         [("add_to_wardrobe", {"item_id": item["id"]})], prefs)
+    if re.search(r"\b(show|open|see)\b.*\b(my )?wardrobe\b|\bwhat'?s in my wardrobe\b", t):
+        return _turn("Opening your wardrobe.", [("show_wardrobe", {})], prefs)
+    if re.search(r"\b(what|something) (goes|would go|matches) (with |to )?(my )?wardrobe\b|\bcomplete (?:the )?(?:look|outfit) (?:from|with) my wardrobe\b", t):
+        return _turn("Looking through what goes with what you already own.",
+                     [("suggest_from_wardrobe", {})], prefs)
+
     # --- virtual try-on: "try this on" / "let me try the second one"
     if (re.search(r"\btry\b.*\bon\b|\b(try[- ]?on)\b", t)
             or re.search(r"\blet me (try|see) (it|this|that|them)\b", t)) \
