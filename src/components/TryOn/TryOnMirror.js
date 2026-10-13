@@ -40,6 +40,17 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
   const streamRef = useRef(null);
   const [status, setStatus] = useState('loading');  // loading | ready | error
   const [errorMessage, setErrorMessage] = useState('');
+  // Catalog photo with its white studio background stripped (see
+  // removeWhiteBackground) -- falls back to the original URL on failure.
+  const [cutoutUrl, setCutoutUrl] = useState(null);
+
+  useEffect(() => {
+    let stale = false;
+    if (!item?.image_url) { setCutoutUrl(null); return undefined; }
+    setCutoutUrl(item.image_url);                   // show something immediately
+    removeWhiteBackground(item.image_url).then((url) => { if (!stale) setCutoutUrl(url); });
+    return () => { stale = true; };
+  }, [item?.image_url]);
 
   // ---------- Camera + MediaPipe boot
   useEffect(() => {
@@ -160,12 +171,12 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
       {item?.image_url && (
         <img
           ref={overlayRef}
-          src={item.image_url}
+          src={cutoutUrl || item.image_url}
           alt={item.name || 'try-on'}
           className="tryon-garment"
           style={{
             position: 'absolute', pointerEvents: 'none', opacity: 0,
-            mixBlendMode: 'multiply', transformOrigin: 'center top',
+            transformOrigin: 'center top',
             transition: 'left .08s linear, top .08s linear, width .08s linear',
           }}
         />
@@ -174,6 +185,68 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
       {status === 'error' && <div className="tryon-overlay-msg tryon-error">{errorMessage}</div>}
     </div>
   );
+}
+
+
+/**
+ * Catalog photos are shot on white. Pasting one straight onto a camera feed
+ * looks like a sticker, so strip the background before overlaying.
+ *
+ * Flood-fills inward from the four edges, clearing any pixel close to the
+ * corner colour and stopping at the garment's own edge. Edge-seeded rather
+ * than "clear every white pixel", because a white kurta would otherwise
+ * become a hole. Returns a transparent-PNG data URL, or the original on any
+ * failure (CORS-tainted canvas, non-white background) -- the overlay still
+ * works, it just keeps its backdrop.
+ */
+function removeWhiteBackground(url, tolerance = 32) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onerror = () => resolve(url);
+    img.onload = () => {
+      try {
+        const { width: w, height: h } = img;
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, w, h);
+        const px = data.data;
+
+        // Background colour = average of the four corners.
+        const corners = [0, (w - 1) * 4, (h - 1) * w * 4, ((h - 1) * w + w - 1) * 4];
+        const bg = [0, 1, 2].map((ch) =>
+          Math.round(corners.reduce((sum, o) => sum + px[o + ch], 0) / corners.length));
+        // Only strip if the border really is a flat light backdrop.
+        if (bg[0] < 200 || bg[1] < 200 || bg[2] < 200) { resolve(url); return; }
+
+        const visited = new Uint8Array(w * h);
+        const stack = [];
+        for (let x = 0; x < w; x++) { stack.push(x, x + (h - 1) * w); }
+        for (let y = 0; y < h; y++) { stack.push(y * w, y * w + w - 1); }
+
+        while (stack.length) {
+          const idx = stack.pop();
+          if (idx < 0 || idx >= w * h || visited[idx]) continue;
+          const o = idx * 4;
+          const dist = Math.abs(px[o] - bg[0]) + Math.abs(px[o + 1] - bg[1]) + Math.abs(px[o + 2] - bg[2]);
+          if (dist > tolerance * 3) continue;      // hit the garment edge
+          visited[idx] = 1;
+          px[o + 3] = 0;                            // transparent
+          const x = idx % w;
+          if (x > 0) stack.push(idx - 1);
+          if (x < w - 1) stack.push(idx + 1);
+          stack.push(idx - w, idx + w);
+        }
+        ctx.putImageData(data, 0, 0);
+        resolve(c.toDataURL('image/png'));
+      } catch {
+        resolve(url);                               // tainted canvas etc.
+      }
+    };
+    img.src = url;
+  });
 }
 
 
