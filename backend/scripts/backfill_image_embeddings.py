@@ -95,7 +95,12 @@ def run(limit: int | None, batch_size: int):
     sb = get_supabase()
 
     print("Fetching inventory rows still needing image embeddings...")
-    todo_by_name: dict[str, str] = {}  # name -> id
+    # name -> ALL ids with that name. `inventory` has duplicate
+    # productDisplayName values across distinct rows (~12% of the catalog),
+    # so a name->single-id dict silently dropped every duplicate but the last
+    # one: each run cleared only a fraction and the backlog never reached
+    # zero. Same bug that was found and fixed in backfill_season_year.py.
+    todo_by_name: dict[str, list[str]] = {}
     offset = 0
     while True:
         r = _retry(lambda: sb.table("inventory")
@@ -107,11 +112,13 @@ def run(limit: int | None, batch_size: int):
             break
         for row in r.data:
             if row.get("name"):
-                todo_by_name[row["name"]] = row["id"]
+                todo_by_name.setdefault(row["name"], []).append(row["id"])
         if len(r.data) < 1000:
             break
         offset += 1000
-    print(f"  {len(todo_by_name)} rows need image embeddings")
+    total_todo = sum(len(v) for v in todo_by_name.values())
+    print(f"  {total_todo} rows need image embeddings "
+          f"({len(todo_by_name)} distinct names)")
 
     if not todo_by_name:
         print("Nothing to do -- every row already has an image embedding.")
@@ -140,9 +147,9 @@ def run(limit: int | None, batch_size: int):
         updated += len(batch_ids)
         elapsed = time.time() - t0
         rate = updated / elapsed if elapsed > 0 else 0
-        remaining = len(todo_by_name) - updated
+        remaining = total_todo - updated
         eta_min = (remaining / rate / 60) if rate > 0 else float("inf")
-        print(f"  updated {updated}/{len(todo_by_name)}  "
+        print(f"  updated {updated}/{total_todo}  "
               f"({elapsed:.0f}s elapsed, {rate:.1f} items/s, ETA {eta_min:.1f} min)")
         batch_ids.clear()
         batch_images.clear()
@@ -155,9 +162,12 @@ def run(limit: int | None, batch_size: int):
         if img is None:
             continue
 
-        batch_ids.append(todo_by_name[name])
-        batch_images.append(img)
-        processed += 1
+        # Every row sharing this product name gets the same image embedding --
+        # they are the same product, duplicated in the catalog.
+        ids = todo_by_name[name]
+        batch_ids.extend(ids)
+        batch_images.extend([img] * len(ids))
+        processed += len(ids)
 
         if len(batch_ids) >= batch_size:
             flush()
@@ -168,7 +178,7 @@ def run(limit: int | None, batch_size: int):
     flush()  # final partial batch
 
     print(f"\nDone: {updated} rows upgraded to real image embeddings in {time.time() - t0:.0f}s")
-    remaining = len(todo_by_name) - updated
+    remaining = total_todo - updated
     if remaining > 0:
         print(f"{remaining} rows had no matching image in this dataset pass -- "
               f"rerun to pick up any that failed transiently.")
