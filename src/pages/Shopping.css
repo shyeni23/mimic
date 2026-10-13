@@ -815,3 +815,25 @@
   outline-offset: 2px;
   box-shadow: 0 0 24px rgba(108, 99, 255, 0.45);
 }
+
+/* "I own this" -- wardrobe save, full width under the main actions. */
+.product-card .own-btn {
+  width: calc(100% - 24px);
+  margin: 0 12px 12px;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px dashed var(--glass-border, rgba(255, 255, 255, 0.2));
+  color: var(--text-secondary, #a9abc4);
+  font-size: 0.82rem;
+}
+.product-card .own-btn:hover {
+  border-style: solid;
+  color: var(--text-primary, #fff);
+}
+.product-card .own-btn.owned {
+  border-style: solid;
+  border-color: var(--primary, #6c63ff);
+  color: var(--primary, #6c63ff);
+  background: rgba(108, 99, 255, 0.1);
+}

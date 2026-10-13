@@ -56,7 +56,12 @@ class Settings(BaseSettings):
     groq_fast_model: str = "openai/gpt-oss-20b"
 
     # Whisper
-    whisper_model_size: str = "base"
+    # "small" over "base": measurably fewer mis-hears on short, accented or
+    # noisy store speech (a customer's "for engagement dress" came back as
+    # "It's meant sorry" on base). ~2x slower per clip on CPU (~1.5s vs 0.8s
+    # for a 5s utterance), which is well inside the pause customers already
+    # expect after speaking. Set WHISPER_MODEL_SIZE=base in .env to revert.
+    whisper_model_size: str = "small"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     # Pinned rather than auto-detected: on short/compressed mic clips, Whisper's

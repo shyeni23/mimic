@@ -18,11 +18,12 @@ import {
   RiFilterLine,
   RiLoader4Line,
   RiCalendarEventLine,
+  RiArchiveLine,
 } from 'react-icons/ri';
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import FilterChips from '../components/Common/FilterChips';
-import { apiGetJSON } from '../utils/api';
+import { apiGetJSON, apiPostJSON } from '../utils/api';
 import { useSession } from '../context/SessionContext';
 import { logEventNow, useImpressionLogger } from '../hooks/useEventLogger';
 import { useAriaAction } from '../utils/ariaBus';
@@ -51,7 +52,7 @@ const cardVariants = {
 
 /** Extracted so useImpressionLogger can attach its own IntersectionObserver
  * per card -- hooks can't be called inside a .map() body in the parent. */
-const ProductCard = ({ product, sessionId, wishlisted, highlighted, onWishlist, onAddToCart, onReserve, formatPrice, emoji }) => {
+const ProductCard = ({ product, sessionId, wishlisted, highlighted, owned, onWishlist, onAddToCart, onReserve, onOwn, formatPrice, emoji }) => {
   const cardRef = useRef(null);
   useImpressionLogger(sessionId, product.id, cardRef);
   return (
@@ -106,6 +107,14 @@ const ProductCard = ({ product, sessionId, wishlisted, highlighted, onWishlist, 
           <RiShoppingCartLine /> Add to Cart
         </button>
       </div>
+      {/* Wardrobe: "I already own this" -- future looks are built around it. */}
+      <button
+        className={`action-btn own-btn${owned ? ' owned' : ''}`}
+        onClick={() => onOwn(product)}
+        title={owned ? 'In your wardrobe' : 'Save as something you already own'}
+      >
+        <RiArchiveLine /> {owned ? 'In your wardrobe' : 'I own this'}
+      </button>
     </motion.div>
   );
 };
@@ -127,6 +136,8 @@ const Shopping = () => {
   // so voice actions and the Recommendations hearts see the same state.
   const [favouritesOnly, setFavouritesOnly] = useState(false);
   const [limit, setLimit] = useState(48);
+  // Ids the customer has marked "I already own this" (wardrobe).
+  const [ownedIds, setOwnedIds] = useState(() => new Set());
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -167,6 +178,18 @@ const Shopping = () => {
     })();
   }, []);
 
+  // Wardrobe items already saved this session -- so the button renders in the
+  // right state when she comes back to this page.
+  useEffect(() => {
+    if (!sessionId) return;
+    (async () => {
+      try {
+        const data = await apiGetJSON(`/api/wardrobe/${sessionId}`);
+        setOwnedIds(new Set((data.items || []).map((i) => String(i.id))));
+      } catch { /* wardrobe is optional -- the page works without it */ }
+    })();
+  }, [sessionId]);
+
   const filterOptions = useMemo(() => categories, [categories]);
   const occasionOptions = useMemo(() => occasions, [occasions]);
 
@@ -182,6 +205,29 @@ const Shopping = () => {
   };
 
   const updateCartQuantity = (productId, delta) => setCartQuantity(productId, { delta });
+
+  // Wardrobe ("I own this") -- the backend stores it against the session, so
+  // "what goes with my wardrobe" can build looks around these pieces.
+  const toggleOwned = async (product) => {
+    const id = String(product.id);
+    const isOwned = ownedIds.has(id);
+    setOwnedIds((prev) => {
+      const next = new Set(prev);
+      if (isOwned) next.delete(id); else next.add(id);
+      return next;
+    });
+    try {
+      await apiPostJSON(`/api/wardrobe/${isOwned ? 'remove' : 'add'}`,
+        { session_id: sessionId, item_id: id });
+    } catch (err) {
+      console.warn('[wardrobe] save failed', err);
+      setOwnedIds((prev) => {               // roll back on failure
+        const next = new Set(prev);
+        if (isOwned) next.add(id); else next.delete(id);
+        return next;
+      });
+    }
+  };
 
   const toggleWishlist = (productId) => {
     const wasWishlisted = !!liked[String(productId)];
@@ -364,7 +410,9 @@ const Shopping = () => {
                   sessionId={sessionId}
                   wishlisted={!!liked[String(product.id)]}
                   highlighted={String(product.id) === String(highlightedItemId)}
+                  owned={ownedIds.has(String(product.id))}
                   onWishlist={toggleWishlist}
+                  onOwn={toggleOwned}
                   onAddToCart={addToCart}
                   onReserve={(p) => logEventNow(sessionId, p.id, 'click', { source: 'shopping', action: 'reserve' })}
                   formatPrice={formatPrice}

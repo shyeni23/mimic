@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RiSunLine,
@@ -28,6 +28,9 @@ import {
 } from 'react-icons/ri';
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
+import { useSession } from '../context/SessionContext';
+import { apiGetJSON } from '../utils/api';
+import { useAriaAction } from '../utils/ariaBus';
 import './Personalization.css';
 
 const containerVariants = {
@@ -52,14 +55,36 @@ const weatherData = {
   forecast: 'Mild with afternoon sunshine',
 };
 
-const wardrobeCategories = [
-  { name: 'Tops', count: 34, percentage: 28, color: '#6C63FF' },
-  { name: 'Bottoms', count: 22, percentage: 18, color: '#00C2FF' },
-  { name: 'Dresses', count: 15, percentage: 12, color: '#8B5CF6' },
-  { name: 'Outerwear', count: 12, percentage: 10, color: '#F472B6' },
-  { name: 'Shoes', count: 18, percentage: 15, color: '#34D399' },
-  { name: 'Accessories', count: 20, percentage: 17, color: '#FBBF24' },
-];
+// Catalog category -> display name + bar colour for the wardrobe chart.
+const WARDROBE_CATEGORY_META = {
+  top: { name: 'Tops', color: '#6C63FF' },
+  bottom: { name: 'Bottoms', color: '#00C2FF' },
+  dress: { name: 'Dresses', color: '#8B5CF6' },
+  footwear: { name: 'Shoes', color: '#34D399' },
+  bag: { name: 'Bags', color: '#F472B6' },
+  watch: { name: 'Watches', color: '#60A5FA' },
+  jewelry: { name: 'Jewellery', color: '#FBBF24' },
+  accessory: { name: 'Accessories', color: '#FB923C' },
+};
+
+/** Real wardrobe items (what the customer marked "I own this") -> the
+ *  category breakdown the chart renders. */
+function buildWardrobeCategories(items) {
+  const counts = {};
+  for (const it of items || []) {
+    const key = it.category || 'accessory';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => ({
+      name: WARDROBE_CATEGORY_META[key]?.name || key,
+      color: WARDROBE_CATEGORY_META[key]?.color || '#6C63FF',
+      count,
+      percentage: Math.round((count / total) * 100),
+    }));
+}
 
 const favoriteColors = [
   { name: 'Navy Blue', hex: '#1E3A5F' },
@@ -125,6 +150,22 @@ const Personalization = () => {
   const [feedback, setFeedback] = useState({});
   const [hoveredStar, setHoveredStar] = useState({ id: null, star: 0 });
   const [refreshing, setRefreshing] = useState(false);
+  // Real wardrobe from /api/wardrobe -- the items the customer saved with
+  // "I own this" on Shopping, or by saying it to Aria.
+  const { sessionId } = useSession();
+  const [wardrobeItems, setWardrobeItems] = useState([]);
+  const wardrobeCategories = useMemo(() => buildWardrobeCategories(wardrobeItems), [wardrobeItems]);
+
+  const loadWardrobe = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const data = await apiGetJSON(`/api/wardrobe/${sessionId}`);
+      setWardrobeItems(data.items || []);
+    } catch { /* wardrobe is optional */ }
+  }, [sessionId]);
+
+  useEffect(() => { loadWardrobe(); }, [loadWardrobe]);
+  useAriaAction(['show_wardrobe'], loadWardrobe);
 
   const handleThumbFeedback = (recId, type) => {
     setFeedback((prev) => ({
@@ -262,9 +303,16 @@ const Personalization = () => {
                 Wardrobe Analysis
               </h2>
               <span className="total-items">
-                {wardrobeCategories.reduce((sum, c) => sum + c.count, 0)} items
+                {wardrobeItems.length} item{wardrobeItems.length === 1 ? '' : 's'}
               </span>
             </div>
+
+            {wardrobeItems.length === 0 && (
+              <p className="wardrobe-empty">
+                Your wardrobe is empty. Tap "I own this" on any product, or tell
+                Aria "I already own this", and I'll build looks around it.
+              </p>
+            )}
 
             <div className="wardrobe-categories">
               {wardrobeCategories.map((category, index) => (
