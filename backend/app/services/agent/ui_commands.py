@@ -458,11 +458,20 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         return _turn("Looking through what goes with what you already own.",
                      [("suggest_from_wardrobe", {})], prefs)
 
-    # --- virtual try-on: "try this on" / "let me try the second one"
-    if (re.search(r"\btry\b.*\bon\b|\b(try[- ]?on)\b", t)
-            or re.search(r"\blet me (try|see) (it|this|that|them)\b", t)) \
-            and not re.search(r"\btry (something|another|different|again)\b", t) \
-            and not re.search(r"\bfitting room\b|\btrial room\b", t):
+    # --- virtual try-on. Covers both shapes customers actually use:
+    #   explicit  -- "try this on", "try-on the red one", "wear it"
+    #   implicit  -- "I want to try the third one", "let me try that"
+    # The implicit form has no "on" at all ("one" is not "on"), which is why
+    # a bare \btry\b.*\bon\b rule missed the most natural phrasing of all.
+    _wants_tryon = (
+        re.search(r"\btry\b.*\bon\b|\b(try[- ]?on)\b", t)
+        or re.search(r"\blet me (try|see|wear)\b", t)
+        or re.search(r"\b(i('| wa)?n?t to |i wanna |can i |could i |may i )?(try|wear)\b", t)
+    )
+    if _wants_tryon \
+            and not re.search(r"\btry (something|another|other|different|again|a different)\b", t) \
+            and not re.search(r"\bfitting room\b|\btrial room\b", t) \
+            and not re.search(r"\btry (to|and)\b", t):          # "try to find me a saree"
         item = _resolve(t, screen, highlighted) or (
             next((i for i in screen if str(i.get("id")) == highlighted), None) if highlighted else None)
         if item:

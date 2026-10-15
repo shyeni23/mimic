@@ -27,7 +27,10 @@ open_clip_torch==2.32.0
 
 # Voice (Module 2)
 faster-whisper==1.0.3
-edge-tts==7.2.8
+# 7.2.8 started getting 403s from Microsoft's endpoint (they rotate the
+# Sec-MS-GEC auth token and old clients stop working, silencing Aria
+# completely). Keep this current if TTS ever 500s again.
+edge-tts==7.3.1
 
 # Accessory detection (Module 1)
 glasses-detector==1.0.1

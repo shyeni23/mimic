@@ -118,7 +118,9 @@ export function VoiceAgentProvider({ children }) {
     setIsSpeaking(true);
     try {
       const res = await apiPost('/api/voice/tts', { text });
+      if (!res.ok) throw new Error(`tts ${res.status}`);
       const blob = await res.blob();
+      if (!blob.size) throw new Error('tts returned no audio');
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.playbackRate = speechRateRef.current;
@@ -126,9 +128,27 @@ export function VoiceAgentProvider({ children }) {
       currentAudioRef.current = audio;
       audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); currentAudioRef.current = null; };
       audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(url); currentAudioRef.current = null; };
-      audio.play();
-    } catch {
-      setIsSpeaking(false);
+      await audio.play();
+    } catch (err) {
+      // Edge-TTS goes down for real: Microsoft rotates its auth token and
+      // older clients start getting 403s, which left Aria completely silent
+      // with no visible sign anything was wrong. Fall back to the browser's
+      // own speech synthesis -- a less natural voice, but a talking mirror
+      // beats a mute one, and the console line says which one you're hearing.
+      console.warn('[voice] server TTS failed, using browser speech:', err.message);
+      try {
+        const synth = window.speechSynthesis;
+        if (!synth) throw new Error('no speechSynthesis');
+        synth.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = speechRateRef.current;
+        utter.volume = voiceVolumeRef.current;
+        utter.onend = () => setIsSpeaking(false);
+        utter.onerror = () => setIsSpeaking(false);
+        synth.speak(utter);
+      } catch {
+        setIsSpeaking(false);
+      }
     }
   }, []);
 
@@ -182,13 +202,17 @@ export function VoiceAgentProvider({ children }) {
             currentAudioRef.current.pause();
             currentAudioRef.current = null;
           }
+          window.speechSynthesis?.cancel();   // also stop the fallback voice
           setIsSpeaking(false);
           break;
         case 'set_voice_mute':
           voiceMutedRef.current = !!p.muted;
-          if (p.muted && currentAudioRef.current) {
-            currentAudioRef.current.pause();
-            currentAudioRef.current = null;
+          if (p.muted) {
+            if (currentAudioRef.current) {
+              currentAudioRef.current.pause();
+              currentAudioRef.current = null;
+            }
+            window.speechSynthesis?.cancel();
             setIsSpeaking(false);
           }
           break;

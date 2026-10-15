@@ -140,3 +140,29 @@ def test_recommend_items_adds_face_shape_to_query(monkeypatch):
                             gender="female", category="jewelry", face_shape="round")
     assert "long drop earrings" in seen["q"]
     assert any("round face shape" in (i.get("explanation") or "") for i in r["results"])
+
+
+@pytest.mark.parametrize("text, expected_id", [
+    ("i want to try third", "a3"),
+    ("i want to try the third one", "a3"),
+    ("try third one", "a3"),
+    ("let me try the third", "a3"),
+    ("try the third on", "a3"),
+    ("i wanna try the red one", "a2"),
+    ("can i try the second one", "a2"),
+    ("wear the first one", "a1"),
+])
+def test_try_on_phrasings(text, expected_id):
+    """'I want to try the third one' has no 'on' in it -- the natural phrasing
+    was missed by a try...on rule, so try-on never fired for most customers."""
+    got = actions(text)
+    assert got, f"{text!r} not recognised"
+    assert ("start_tryon", {"item_id": expected_id, "item": SCREEN[int(expected_id[1]) - 1]}) in got, got
+
+
+@pytest.mark.parametrize("text", [
+    "try something else", "try to find a red dress", "i want to try these on",
+])
+def test_not_a_try_on(text):
+    got = actions(text) or []
+    assert "start_tryon" not in [a for a, _ in got], f"{text!r} -> {got}"
