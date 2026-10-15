@@ -203,6 +203,12 @@ function removeWhiteBackground(url, tolerance = 32) {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
+    // Cache-buster, NOT for freshness: the product grid loads these same
+    // images WITHOUT crossOrigin, so the browser caches a response carrying
+    // no CORS headers. Re-requesting with crossOrigin then reuses that
+    // poisoned entry and the load fails -- confirmed live, which would have
+    // made background removal silently never run. A distinct URL gets its
+    // own cache entry, fetched with the CORS headers intact.
     img.onerror = () => resolve(url);
     img.onload = () => {
       try {
@@ -226,6 +232,7 @@ function removeWhiteBackground(url, tolerance = 32) {
         for (let x = 0; x < w; x++) { stack.push(x, x + (h - 1) * w); }
         for (let y = 0; y < h; y++) { stack.push(y * w, y * w + w - 1); }
 
+        let cleared = 0;
         while (stack.length) {
           const idx = stack.pop();
           if (idx < 0 || idx >= w * h || visited[idx]) continue;
@@ -234,18 +241,27 @@ function removeWhiteBackground(url, tolerance = 32) {
           if (dist > tolerance * 3) continue;      // hit the garment edge
           visited[idx] = 1;
           px[o + 3] = 0;                            // transparent
+          cleared++;
           const x = idx % w;
           if (x > 0) stack.push(idx - 1);
           if (x < w - 1) stack.push(idx + 1);
           stack.push(idx - w, idx + w);
         }
+
+        // A white garment on a white backdrop (white kurtas, cream sarees --
+        // common in ethnic wear) has no edge for the fill to stop at, so it
+        // leaks through and erases the product: a white t-shirt measured 96%
+        // cleared. Anything past this threshold means the garment itself went
+        // with it, so keep the original rather than overlay nothing.
+        if (cleared / (w * h) > 0.85) { resolve(url); return; }
+
         ctx.putImageData(data, 0, 0);
         resolve(c.toDataURL('image/png'));
       } catch {
         resolve(url);                               // tainted canvas etc.
       }
     };
-    img.src = url;
+    img.src = url + (url.includes('?') ? '&' : '?') + 'cors=1';
   });
 }
 
