@@ -193,7 +193,14 @@ export function SessionProvider({ children }) {
     }
   }, []);
 
+  // React 18 StrictMode invokes mount effects twice in development, which
+  // created TWO sessions ~9ms apart on every app boot (confirmed live). The
+  // second won the state, orphaning the first -- and any row written against
+  // it, e.g. a wardrobe save that raced the second create.
+  const bootedRef = useRef(false);
   useEffect(() => {
+    if (bootedRef.current) return;
+    bootedRef.current = true;
     createSession().catch(() => {}); // error already captured in state above
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
