@@ -11,7 +11,7 @@ import {
 import GlassCard from '../components/Common/GlassCard';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import { useSession } from '../context/SessionContext';
-import { apiPost } from '../utils/api';
+import { apiPost, apiPostJSON } from '../utils/api';
 import { mapBodyShape, mapFaceShape, mapSkinDepth, mapUndertone, mapGender } from '../utils/mapBackendValues';
 import './BodyScanner.css';
 
@@ -38,7 +38,7 @@ function buildAnalysisFeatures(scan) {
 
 export default function BodyScanner() {
   const navigate = useNavigate();
-  const { sessionId, setScanData, fireAgentEvent } = useSession();
+  const { sessionId, setScanData, fireAgentEvent, setTryonItem, registerItems } = useSession();
 
   const [scanState, setScanState] = useState('idle');
   const [scanProgress, setScanProgress] = useState(0);
@@ -162,21 +162,46 @@ export default function BodyScanner() {
     }
   }, [scanState, fireAgentEvent]);
 
-  // Take the customer straight to recommendations once the scan completes,
-  // rather than leaving that to Aria's own judgment call on the
-  // scan_complete event above (her prompt explicitly allows her to just ask
-  // a follow-up question INSTEAD of showing recommendations -- a reasonable
-  // choice for a real conversation, but it means "scan finished" didn't
-  // reliably lead to "see recommendations" the way a customer would expect).
-  // Recommendations.js already auto-fetches as soon as it has both a
-  // session and scanData (both true here), so this is enough on its own --
-  // no separate API call needed. Short delay so the "Scan Complete" badge
-  // is actually visible before the page changes.
+  // SCAN -> TRY-ON. The customer is already standing in front of the
+  // mirror having just been measured; the thing they want next is to SEE
+  // something on themselves, not to read a grid. So pick the best wearable
+  // recommendation and open the mirror wearing it.
+  //
+  // Falls back to the recommendations page whenever that isn't possible --
+  // nothing wearable came back, no photo to overlay, or the call failed.
+  // Recommendations.js auto-fetches from session + scanData, so the
+  // fallback needs no extra call of its own.
   useEffect(() => {
     if (scanState !== 'complete') return;
-    const timer = setTimeout(() => navigate('/recommendations'), 1500);
-    return () => clearTimeout(timer);
-  }, [scanState, navigate]);
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      try {
+        const data = await apiPostJSON('/api/recommend', {
+          session_id: sessionId,
+          grouped: true,
+        });
+        if (cancelled) return;
+        const results = data?.results || [];
+        registerItems(results);
+        // Only tops, dresses and bottoms can be overlaid on a body, and
+        // only with a photo to cut out (see TryOnMirror's GARMENT_LAYOUT).
+        const wearable = results.find(
+          (i) => ['top', 'dress', 'bottom'].includes(i.category) && i.image_url,
+        );
+        if (wearable) {
+          setTryonItem(wearable);
+          navigate('/virtual-tryon');
+          return;
+        }
+      } catch (err) {
+        console.warn('[scan] could not pick a try-on item:', err);
+      }
+      if (!cancelled) navigate('/recommendations');
+    }, 1500);   // let the "Scan Complete" badge actually be seen
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [scanState, navigate, sessionId, setTryonItem, registerItems]);
 
   useEffect(() => {
     if (scanState !== 'scanning') return;

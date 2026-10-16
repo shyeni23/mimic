@@ -234,3 +234,37 @@ def test_dark_frames_are_refused():
     us it's unusable."""
     from app.routers.vision import MIN_SCAN_BRIGHTNESS
     assert 40 < MIN_SCAN_BRIGHTNESS < 90, "must reject the 32-brightness failure, pass a normal room"
+
+
+class TestNoUndergarments:
+    """Real leaks found in the live catalog: plurals defeated the whole-word
+    filter ("Camisoles" slipped past \bcamisole\b because the boundary
+    fails before the trailing s)."""
+
+    @pytest.mark.parametrize("name", [
+        "Jockey ELANCE Men Black Trunk 1015",
+        "Avirate Black Fitted Camisoles",
+        "Hanes Women Pack of Two No Panty Line - Cotton Stretch Boyleg Panties",
+        "Red Rose Women Cream Floral Print Bath Robe",
+        "Femella Women Black Stockings",
+        "Biara Women Orange Blush Bra",
+        "Jockey Men Briefs",
+        "Enamor Women Lingerie Set",
+    ])
+    def test_blocked(self, name):
+        from app.services.fashion.catalog_filters import passes_sanity_check
+        assert not passes_sanity_check({"name": name}), f"{name!r} must never be recommended"
+
+    @pytest.mark.parametrize("name", [
+        "Revv Men Steel Bracelet",              # 'bra' inside a word
+        "F Sports Men Grey Bratt Sports Shoes",
+        "Puma Men Knitted Vest Green Sweater",  # outerwear, not underwear
+        "Portia Women Cream Slip-Ons",
+        "Vans Unisex White Classic Slip On Casual Shoes",
+        "Nike Men AS Thermal Black Jackets",
+        "Fabindia Teal Green Mangalgiri Saree",
+        "Arrow Men Black Pack of 5 Socks",
+    ])
+    def test_not_over_blocked(self, name):
+        from app.services.fashion.catalog_filters import passes_sanity_check
+        assert passes_sanity_check({"name": name}), f"{name!r} is normal stock and must still show"

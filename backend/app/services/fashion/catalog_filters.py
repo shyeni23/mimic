@@ -29,15 +29,27 @@ import re
 # behaviour there doesn't change, just where it's defined.
 FORBIDDEN_KEYWORDS = {
     "swimsuit", "swimwear", "bikini", "innerwear", "underwear", "bra", "lingerie",
-    "nightwear", "sleepwear", "pyjama", "pajama", "brief", "briefs", "boxer", "boxers",
-    "trunks", "camisole", "shapewear", "nightdress", "night suit", "goggles",
+    "nightwear", "sleepwear", "pyjama", "pajama", "brief", "boxer",
+    "trunk", "camisole", "shapewear", "nightdress", "night suit", "goggles",
+    # Added after real leaks were found in the live catalog: "Jockey ELANCE
+    # Men Black Trunk", "Avirate Black Fitted Camisoles", "Hanes Women ...
+    # No Panty Line ... Hipsters", "Red Rose Women Bath Robes", "Femella
+    # Women Black Stockings". Plurals are handled by the regex below, so the
+    # singular form is enough here.
+    "panty", "pantie", "thong", "jockstrap", "bodysuit", "petticoat",
+    "stocking", "pantyhose", "legging liner", "bath robe", "bathrobe",
+    "nighty", "negligee", "chemise", "bustier", "corset",
 }
 KIDS_KEYWORDS = {"girl's", "girls", "boy's", "boys", "kid", "kids", "baby", "toddler", "children"}
 
 # Whole-word matching -- "bra" must not match "brand"/"Zebra", "brief" must
 # not match "briefcase"-style names (checked: catalog has "Briefs" as a
 # standalone word only).
-_FORBIDDEN_RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in sorted(FORBIDDEN_KEYWORDS, key=len, reverse=True)) + r")\b")
+# Whole-word, but tolerant of plurals: "Camisoles" and "Panties" slipped
+# through a bare \bcamisole\b because the \b fails before the trailing "s".
+_FORBIDDEN_RE = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in sorted(FORBIDDEN_KEYWORDS, key=len, reverse=True))
+    + r")(?:s|es)?\b")
 _KIDS_RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in sorted(KIDS_KEYWORDS, key=len, reverse=True)) + r")\b")
 
 # Garment/jewellery words that are women's wear in this catalog. Checked
