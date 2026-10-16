@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { PresenceState } from '../hooks/usePersonPresence';
 import { apiPostJSON, apiPost, API_BASE_URL } from '../utils/api';
 import { emitAriaAction, isVoiceOverlayOpen } from '../utils/ariaBus';
+import { markConversationActivity } from '../utils/presenceActivity';
 import { logEventNow } from '../hooks/useEventLogger';
 
 // "off" disables spoken replies (see playTTS). Anything else = voice on.
@@ -101,6 +102,10 @@ export function VoiceAgentProvider({ children }) {
   const getTimeNow = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const addMessage = useCallback(({ sender, text }) => {
+    // Tell the presence camera the customer is still here: pose detection
+    // fails when someone leans in to talk, and losing it used to end the
+    // session and wipe the chat mid-conversation.
+    markConversationActivity();
     setMessages(prev => [...prev, { id: Date.now() + Math.random(), sender, text, time: getTimeNow() }]);
   }, []);
 
@@ -116,6 +121,7 @@ export function VoiceAgentProvider({ children }) {
       currentAudioRef.current = null;
     }
     setIsSpeaking(true);
+    markConversationActivity();   // a long reply must not age out the grace window
     try {
       const res = await apiPost('/api/voice/tts', { text });
       if (!res.ok) throw new Error(`tts ${res.status}`);
@@ -478,6 +484,7 @@ export function VoiceAgentProvider({ children }) {
 
   const sendMessage = useCallback(async (text, fromVoice = false) => {
     if (!text.trim() || !sessionId) return;
+    markConversationActivity();
     const userMsg = { id: Date.now(), sender: 'user', text: text.trim(), time: getTimeNow() };
     setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
@@ -613,6 +620,8 @@ export function VoiceAgentProvider({ children }) {
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
       setIsRecording(true);
+    markConversationActivity();
+      markConversationActivity();
     } catch (err) {
       setIsRecording(false);
       addMessage({ sender: 'ai', text: `I can't access your microphone -- ${err.message || 'permission denied'}.` });
@@ -647,6 +656,7 @@ export function VoiceAgentProvider({ children }) {
     handsFreeRecorderRef.current = recorder;
     recorder.start();
     setIsRecording(true);
+    markConversationActivity();
     setHandsFreeStatus('listening');
   }, [processRecordedAudio]);
 

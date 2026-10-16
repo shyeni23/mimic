@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { apiPostJSON } from '../utils/api';
+import { isConversationActive, resetConversationActivity } from '../utils/presenceActivity';
 
 /**
  * Global person-presence detector.
@@ -22,7 +23,15 @@ export const PresenceState = {
 
 const POLL_MS = 1500;               // presence check is cheap -- see vision.py's own "poll every 1-2s" guidance
 const PRESENT_CONFIRM_STREAK = 2;   // consecutive positive polls required before starting a conversation
-const ABSENT_CONFIRM_STREAK = 3;    // consecutive negative polls required before ending one
+// 3 polls (4.5s) ended a session the moment the camera lost the pose, which
+// happens constantly for innocent reasons: leaning in to speak, turning to
+// read the screen, standing half out of frame. The customer then got a NEW
+// session and a cleared conversation mid-sentence. 12 polls is ~18s of
+// continuous absence -- long enough that they have actually walked away.
+const ABSENT_CONFIRM_STREAK = 12;
+// ...and even that is overridden while the conversation is live: someone
+// talking to Aria is standing there whatever the pose detector can see.
+const CONVERSATION_GRACE_MS = 45000;
 const DETECTED_HOLD_MS = 600;       // how long PERSON_DETECTED is held before flipping to CONVERSATION_ACTIVE
 
 export function usePersonPresence({ enabled = true } = {}) {
@@ -97,7 +106,14 @@ export function usePersonPresence({ enabled = true } = {}) {
             clearTimeout(holdTimerRef.current);
             holdTimerRef.current = null;
           }
+          // Still mid-conversation? Then they're here, and the pose detector
+          // is simply not seeing them. Keep the session and the chat.
+          if (isConversationActive(CONVERSATION_GRACE_MS)) {
+            absentStreakRef.current = 0;
+            return;
+          }
           absentStreakRef.current = 0;
+          resetConversationActivity();
           setState(PresenceState.NO_PERSON); // person left -- reset for the next one
         }
       }
