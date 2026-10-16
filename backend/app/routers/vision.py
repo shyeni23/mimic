@@ -1,3 +1,5 @@
+import cv2
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 
 from app.services.vision.landmarks import extract_all, decode_image, extract_pose_landmarks
@@ -16,6 +18,14 @@ from app.models.schemas import (
 )
 
 router = APIRouter(prefix="/api/vision", tags=["vision (Module 1)"])
+
+# Mean grayscale brightness below which a scan is refused. The dark-room frame
+# that produced a 75cm height and a wrong gender measured 32; a normally lit
+# room sits well above 90. 60 rejects the genuinely unusable without turning
+# away a dim-but-workable store corner. gender_detect.py uses the same idea at
+# 70 for the face crop, where it halves the face-based votes rather than
+# refusing outright.
+MIN_SCAN_BRIGHTNESS = 60.0
 
 
 def forced_gender() -> str | None:
@@ -79,6 +89,21 @@ async def scan(background_tasks: BackgroundTasks, session_id: str = Form(...), f
         raise HTTPException(
             status_code=422,
             detail="Couldn't see your face clearly. Please face the mirror and check the lighting, then try again.",
+        )
+
+    # TOO DARK TO MEASURE. Every downstream estimate degrades in low light,
+    # but silently and with full confidence: a real scan in a dark room
+    # reported 75cm tall and called a woman "male 0.77". Landmarks still come
+    # back (MediaPipe is robust), so nothing above catches it -- the frame has
+    # to be checked directly. Better to ask her to step into the light than to
+    # record a confidently wrong profile that every later recommendation is
+    # then built on.
+    brightness = float(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).mean())
+    if brightness < MIN_SCAN_BRIGHTNESS:
+        raise HTTPException(
+            status_code=422,
+            detail=("It's too dark to measure you accurately. Please step into the light "
+                    "or switch on the mirror light, then try again."),
         )
 
     body = classify_body_shape(extraction["pose_landmarks"])

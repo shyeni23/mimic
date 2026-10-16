@@ -9,6 +9,8 @@ AI datasets (CSV) are treated separately (see app/utils/dataset_loader.py) since
 they're static training/reference data, not live app state.
 """
 import re
+
+from app.db.resilience import with_retry
 import threading
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
@@ -164,15 +166,18 @@ def update_scan_frame_url(session_id: str, frame_url: str) -> dict | None:
 
 
 def get_latest_scan(session_id: str) -> dict | None:
+    # Retried: every recommendation path starts here, so a two-second DNS
+    # blip would otherwise surface as a hard failure to someone standing at
+    # the mirror. See app/db/resilience.py.
     sb = get_supabase()
-    res = (
+    res = with_retry(lambda: (
         sb.table("scans")
         .select("*")
         .eq("session_id", session_id)
         .order("created_at", desc=True)
         .limit(1)
         .execute()
-    )
+    ), what="get_latest_scan")
     return res.data[0] if res.data else None
 
 
@@ -240,14 +245,14 @@ def get_conversation_history(session_id: str, limit: int = 50) -> list[dict]:
     before the limit returned the OLDEST turns, so past `limit` turns Aria
     lost everything recent -- latest preferences, the list on screen.)"""
     sb = get_supabase()
-    res = (
+    res = with_retry(lambda: (
         sb.table("conversations")
         .select("*")
         .eq("session_id", session_id)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()
-    )
+    ), what="get_conversation_history")
     return list(reversed(res.data or []))
 
 

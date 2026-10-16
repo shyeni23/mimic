@@ -182,3 +182,55 @@ def test_wedding_dress_means_ethnic_wear_in_an_indian_store():
     # A specific garment request is never overridden.
     assert ethnic_terms_for("gown", "wedding", "female") is None
     assert ethnic_terms_for("heels", "wedding", "female") is None
+
+
+class TestResilience:
+    """Transient-fault retry for Supabase calls (app/db/resilience.py).
+    This machine lost DNS six times during one backfill; the live request
+    path had no retry, so a two-second blip failed a customer's scan."""
+
+    def test_dns_and_timeouts_are_transient(self):
+        import httpx
+        from app.db.resilience import is_transient
+        assert is_transient(httpx.ConnectError("[Errno 11001] getaddrinfo failed"))
+        assert is_transient(httpx.ReadTimeout("read timeout"))
+        assert is_transient(Exception("{'code': '57014', 'message': 'canceling statement'}"))
+
+    def test_real_errors_are_not_retried(self):
+        from app.db.resilience import is_transient
+        assert not is_transient(ValueError("item not found"))
+        assert not is_transient(KeyError("bad payload"))
+
+    def test_retries_then_succeeds(self):
+        import httpx
+        from app.db.resilience import with_retry
+        calls = {"n": 0}
+
+        def flaky():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise httpx.ConnectError("[Errno 11001] getaddrinfo failed")
+            return "ok"
+
+        assert with_retry(flaky, what="test") == "ok"
+        assert calls["n"] == 3
+
+    def test_non_transient_raises_immediately(self):
+        from app.db.resilience import with_retry
+        calls = {"n": 0}
+
+        def broken():
+            calls["n"] += 1
+            raise ValueError("nope")
+
+        with pytest.raises(ValueError):
+            with_retry(broken, what="test")
+        assert calls["n"] == 1, "a real error must not be retried"
+
+
+def test_dark_frames_are_refused():
+    """A dark-room scan reported 75cm tall and the wrong gender, with full
+    confidence -- landmarks still come back, so only the frame itself tells
+    us it's unusable."""
+    from app.routers.vision import MIN_SCAN_BRIGHTNESS
+    assert 40 < MIN_SCAN_BRIGHTNESS < 90, "must reject the 32-brightness failure, pass a normal room"
