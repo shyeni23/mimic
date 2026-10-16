@@ -140,7 +140,12 @@ def _show_look(session_id: str, prefs: dict, lead: str) -> str:
     if look.get("mode") == "requested_items":
         labels = " and ".join(s["label"].lower() for s in look["sections"])
         occ = f" for your {prefs['occasion']}" if prefs.get("occasion") else ""
-        return f"{lead} Here are {len(look['results'])} {labels}{occ}, picked for your body shape and skin tone."
+        # "12 sarees" reads fine; "12 ethnic wear" does not -- mass nouns need
+        # a counter word.
+        n = len(look["results"])
+        mass = labels.endswith("wear") or labels.endswith("clothing")
+        count = f"{n} pieces of {labels}" if mass else f"{n} {labels}"
+        return f"{lead} Here are {count}{occ}, picked for your body shape and skin tone."
     return f"{lead} Here's a look picked for your body shape and skin tone."
 
 
