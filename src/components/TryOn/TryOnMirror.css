@@ -26,3 +26,23 @@
   color: #ffe4e8;
   font-weight: 500;
 }
+
+/* Positioning guidance ("step back so I can see your hips"). Sits low so it
+   doesn't cover the customer's own reflection, and is readable from the
+   distance someone actually stands at a mirror. */
+.tryon-guidance {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100% - 32px));
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: rgba(8, 8, 20, 0.82);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 500;
+  text-align: center;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}

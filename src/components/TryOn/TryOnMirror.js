@@ -68,6 +68,11 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
   // Catalog photo with its white studio background stripped (see
   // removeWhiteBackground) -- falls back to the original URL on failure.
   const [cutoutUrl, setCutoutUrl] = useState(null);
+  // What the customer needs to change about how they're standing. The
+  // overlay used to just fade to 30% and say nothing, which reads as "it's
+  // broken" rather than "step back".
+  const [guidance, setGuidance] = useState(null);
+  const guidanceRef = useRef(null);
 
   useEffect(() => {
     let stale = false;
@@ -183,16 +188,31 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
     if (!overlay || !video) return;
     const marks = res?.poseLandmarks;
     const layout = GARMENT_LAYOUT[item?.category];
-    if (!marks || !layout || !item?.image_url) { overlay.style.opacity = '0'; return; }
+    // Say it once, not on every frame -- setState at 12fps would rerender
+    // the whole mirror continuously.
+    const say = (msg) => {
+      if (guidanceRef.current !== msg) { guidanceRef.current = msg; setGuidance(msg); }
+    };
+
+    if (!marks) { overlay.style.opacity = '0'; say('Step in front of the mirror so I can see you.'); return; }
+    if (!layout || !item?.image_url) { overlay.style.opacity = '0'; say(null); return; }
 
     const ls = marks[L_SHOULDER];
     const rs = marks[R_SHOULDER];
     const lh = marks[L_HIP];
     const rh = marks[R_HIP];
     // All four points must be clearly visible; otherwise the overlay drifts.
-    const minVis = Math.min(ls?.visibility ?? 0, rs?.visibility ?? 0,
-                            lh?.visibility ?? 0, rh?.visibility ?? 0);
-    if (minVis < 0.4) { overlay.style.opacity = '0.3'; return; }
+    const shoulderVis = Math.min(ls?.visibility ?? 0, rs?.visibility ?? 0);
+    const hipVis = Math.min(lh?.visibility ?? 0, rh?.visibility ?? 0);
+    if (Math.min(shoulderVis, hipVis) < 0.4) {
+      overlay.style.opacity = '0.3';
+      // Name the ACTUAL problem: hips missing almost always means standing
+      // too close, which is the most common way customers get this wrong.
+      say(hipVis < 0.4 && shoulderVis >= 0.4
+        ? 'Step back a little so I can see down to your hips.'
+        : 'Face the mirror so I can see your shoulders and hips.');
+      return;
+    }
 
     const w = video.clientWidth || video.videoWidth;
     const h = video.clientHeight || video.videoHeight;
@@ -222,6 +242,7 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
     overlay.style.top = `${topY}px`;
     overlay.style.transform = `rotate(${angleDeg}deg)`;
     overlay.style.opacity = '0.92';
+    say(null);                       // positioned correctly -- nothing to say
   };
 
   return (
@@ -250,6 +271,7 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
           }}
         />
       )}
+      {status === 'ready' && guidance && <div className="tryon-guidance">{guidance}</div>}
       {status === 'loading' && <div className="tryon-overlay-msg">Starting the camera…</div>}
       {status === 'warming' && (
         <div className="tryon-overlay-msg">
