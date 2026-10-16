@@ -29,10 +29,15 @@ const L_HIP = 23;
 const R_HIP = 24;
 // Garment image is sized relative to shoulder width (clothing patterns look
 // right at ~1.6x the shoulder span) and anchored by its vertical placement.
+// maxHeightMul caps the rendered height against TORSO length. Scaling by
+// width alone lets the image's own aspect ratio decide the height: a 3:4
+// product photo at shoulder width renders ~1.7x the torso, so a shirt ran
+// 75px past the hips and reached mid-thigh. The cap keeps each garment
+// inside a plausible envelope for what it actually is.
 const GARMENT_LAYOUT = {
-  top: { widthMul: 1.6, topOffset: 0.3, hAlign: 'shoulders' },
-  dress: { widthMul: 1.5, topOffset: 0.2, hAlign: 'shoulders' },
-  bottom: { widthMul: 1.3, topOffset: 0.0, hAlign: 'hips' },
+  top: { widthMul: 1.6, topOffset: 0.3, hAlign: 'shoulders', maxHeightMul: 1.35 },
+  dress: { widthMul: 1.5, topOffset: 0.2, hAlign: 'shoulders', maxHeightMul: 2.3 },
+  bottom: { widthMul: 1.3, topOffset: 0.0, hAlign: 'hips', maxHeightMul: 2.0 },
   // Accessories don't try on; the component shows them as a side chip.
 };
 
@@ -200,7 +205,14 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
     const shoulderSpan = Math.hypot(rsP.x - lsP.x, rsP.y - lsP.y);
     const torsoLen = Math.hypot(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y);
 
-    const width = Math.max(80, shoulderSpan * layout.widthMul);
+    let width = Math.max(80, shoulderSpan * layout.widthMul);
+    // Height follows the image's own aspect ratio once width is set, so cap
+    // it against the body and scale the whole garment down if it overshoots
+    // -- narrower than the shoulders is better than a shirt down to the knee.
+    const aspect = (overlay.naturalHeight || 4) / (overlay.naturalWidth || 3);
+    const maxHeight = torsoLen * layout.maxHeightMul;
+    if (width * aspect > maxHeight) width = maxHeight / aspect;
+
     const anchor = layout.hAlign === 'hips' ? hipMid : shoulderMid;
     const topY = anchor.y - torsoLen * layout.topOffset;
     const angleDeg = Math.atan2(rsP.y - lsP.y, rsP.x - lsP.x) * 180 / Math.PI;
