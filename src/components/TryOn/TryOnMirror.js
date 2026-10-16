@@ -7,6 +7,21 @@ const LIGHTING = {
   warm: 'rgba(255, 180, 80, 0.10)',
   cool: 'rgba(100, 180, 255, 0.10)',
 };
+// PINNED, deliberately. The unversioned "@mediapipe/pose" path resolves to
+// whatever is newest, and a newer build ships an asset loader that throws
+// "Cannot read properties of undefined (reading '...pose_solution_packed_
+// assets.data')" from xhr.onprogress -- confirmed live on a clean machine.
+// Do not drop the version without testing the overlay end to end.
+const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404';
+// Pose inference on a CPU laptop costs ~60-90ms a frame. Asking for 60fps
+// queues work faster than it completes, each send holding its own buffers,
+// until the tab exhausts memory ("could not allocate additional memory").
+// Target a rate the hardware can actually sustain, and never have more than
+// one inference in flight.
+const TARGET_FPS = 12;
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const MAX_CONSECUTIVE_FAILURES = 5;
+
 // MediaPipe Pose landmark indices (same ones body_shape.py uses).
 const L_SHOULDER = 11;
 const R_SHOULDER = 12;
@@ -37,6 +52,11 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
   const overlayRef = useRef(null);
   const poseRef = useRef(null);
   const rafRef = useRef(null);
+  const inFlightRef = useRef(false);     // one inference at a time (back-pressure)
+  const lastFrameAtRef = useRef(0);      // rate limit to TARGET_FPS
+  const failuresRef = useRef(0);         // consecutive send() rejections
+  const stoppedRef = useRef(false);      // hard stop after repeated failures
+  const statusRef = useRef('loading');   // read inside onPoseResults (not reactive)
   const streamRef = useRef(null);
   const [status, setStatus] = useState('loading');  // loading | ready | error
   const [errorMessage, setErrorMessage] = useState('');
@@ -69,11 +89,11 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
         // MediaPipe Pose from the official CDN build. Deliberately NOT bundled
         // (its wasm + model are ~5MB) -- loaded once per session on this page.
         if (!window.Pose) {
-          await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js');
+          await loadScript(`${MEDIAPIPE_CDN}/pose.js`);
         }
         if (cancelled) return;
         const pose = new window.Pose({
-          locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`,
+          locateFile: (f) => `${MEDIAPIPE_CDN}/${f}`,
         });
         pose.setOptions({
           modelComplexity: 1, smoothLandmarks: true, enableSegmentation: false,
@@ -81,7 +101,11 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
         });
         pose.onResults(onPoseResults);
         poseRef.current = pose;
-        setStatus('ready');
+        // NOT 'ready' yet: the first inference downloads and initialises the
+        // wasm model, measured at ~13s on this hardware. Saying ready here
+        // left the customer staring at a bare camera with no explanation.
+        statusRef.current = 'warming';
+        setStatus('warming');
         onPoseReady?.();
         loop();
       } catch (err) {
@@ -90,32 +114,65 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
           ? 'Camera access was denied. Allow it in your browser to use try-on.'
           : `Try-on couldn't start: ${err.message || err}`;
         setErrorMessage(msg);
+        statusRef.current = 'error';
         setStatus('error');
         onError?.(err);
       }
     })();
     return () => {
       cancelled = true;
+      // The loop is async: an in-flight send() resolves AFTER unmount and
+      // would queue another frame against a closed Pose. This flag is what
+      // actually stops it; cancelAnimationFrame alone cannot.
+      stoppedRef.current = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       try { poseRef.current?.close(); } catch { /* MediaPipe closed */ }
     };
   }, []);
 
-  // ---------- Per-frame: push the current video frame into MediaPipe
-  const loop = () => {
+  // ---------- Per-frame: push the current video frame into MediaPipe.
+  // Back-pressured and rate-limited. The first version fired send() on every
+  // animation frame and swallowed the rejection, so on a CPU laptop the
+  // inferences piled up and a failing load retried ~60x a second until the
+  // tab ran out of memory and Windows killed the process.
+  const loop = async () => {
+    if (stoppedRef.current) return;
     const pose = poseRef.current;
     const video = videoRef.current;
-    if (!pose || !video || video.readyState < 2) {
-      rafRef.current = requestAnimationFrame(loop);
-      return;
+    const now = performance.now();
+
+    if (pose && video && video.readyState >= 2
+        && !inFlightRef.current                                   // one at a time
+        && now - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {    // and not too often
+      inFlightRef.current = true;
+      lastFrameAtRef.current = now;
+      try {
+        await pose.send({ image: video });
+        failuresRef.current = 0;
+      } catch (err) {
+        failuresRef.current += 1;
+        if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
+          stoppedRef.current = true;
+          console.error('[try-on] pose tracking failed repeatedly, stopping:', err);
+          setErrorMessage('Pose tracking could not start. The camera still works -- reload to try again.');
+          statusRef.current = 'error';
+        setStatus('error');
+          return;                                                  // stop the loop for good
+        }
+      } finally {
+        inFlightRef.current = false;
+      }
     }
-    pose.send({ image: video }).catch(() => { /* occasional dropped frame */ });
-    rafRef.current = requestAnimationFrame(loop);
+    if (!stoppedRef.current) rafRef.current = requestAnimationFrame(loop);
   };
 
   // ---------- Landmarks -> overlay position
   const onPoseResults = (res) => {
+    // First results back == the model is live. Clear the warming message.
+    // Only promote OUT OF warming -- a late result must never overwrite a
+    // real error and hide it from the customer.
+    if (statusRef.current === 'warming') { statusRef.current = 'ready'; setStatus('ready'); }
     const overlay = overlayRef.current;
     const video = videoRef.current;
     if (!overlay || !video) return;
@@ -181,7 +238,14 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
           }}
         />
       )}
-      {status === 'loading' && <div className="tryon-overlay-msg">Loading pose tracking…</div>}
+      {status === 'loading' && <div className="tryon-overlay-msg">Starting the camera…</div>}
+      {status === 'warming' && (
+        <div className="tryon-overlay-msg">
+          Getting the mirror ready…
+          <br />
+          <small>First use downloads the body-tracking model. This takes a few seconds.</small>
+        </div>
+      )}
       {status === 'error' && <div className="tryon-overlay-msg tryon-error">{errorMessage}</div>}
     </div>
   );
