@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 
 from app.db.supabase_client import get_inventory, get_supabase
 
@@ -74,3 +74,34 @@ def list_occasions():
             break
         offset += 1000
     return {"occasions": sorted(tags)}
+
+
+@router.get("/{item_id}/cutout")
+def item_cutout(item_id: str):
+    """Garment with its studio backdrop removed, as a transparent PNG, for
+    the try-on overlay. Pasting the raw catalog photo on a camera feed looks
+    like a sticker.
+
+    Segmented with GrabCut on the server rather than flood-filled in the
+    browser: the browser version ate a white garment on a white backdrop
+    whole (96% of pixels cleared) and couldn't follow a soft edge. Results
+    are cached on disk -- the same product always cuts out identically.
+
+    404 means "no cutout for this one" (busy backdrop, implausible result),
+    and the caller should fall back to the original photo rather than show
+    nothing.
+    """
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    from app.services.fashion.cutout import make_cutout
+
+    images_dir = Path(__file__).resolve().parents[2] / "data" / "product_images"
+    src = images_dir / f"{item_id}.jpg"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="no product image for that item")
+    out = make_cutout(src)
+    if out is None:
+        raise HTTPException(status_code=404, detail="no cutout available for that image")
+    # Immutable: the cutout for a given product never changes.
+    return FileResponse(out, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})

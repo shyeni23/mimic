@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useEffect, useRef, useState } from 'react';
+import { API_BASE_URL } from '../../utils/api';
 
 const LIGHTING = {
   natural: 'transparent',
@@ -78,9 +79,22 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
     let stale = false;
     if (!item?.image_url) { setCutoutUrl(null); return undefined; }
     setCutoutUrl(item.image_url);                   // show something immediately
-    removeWhiteBackground(item.image_url).then((url) => { if (!stale) setCutoutUrl(url); });
+    (async () => {
+      // Prefer the SERVER cutout: GrabCut segments properly, follows sleeves
+      // and hems, and survives a white garment on a white backdrop -- the
+      // browser flood-fill below erased those entirely (96% of pixels).
+      if (item.id) {
+        const serverCutout = `${API_BASE_URL}/api/inventory/${item.id}/cutout`;
+        try {
+          const res = await fetch(serverCutout, { method: 'HEAD' });
+          if (res.ok) { if (!stale) setCutoutUrl(serverCutout); return; }
+        } catch { /* fall through to the browser version */ }
+      }
+      const url = await removeWhiteBackground(item.image_url);
+      if (!stale) setCutoutUrl(url);
+    })();
     return () => { stale = true; };
-  }, [item?.image_url]);
+  }, [item?.image_url, item?.id]);
 
   // ---------- Camera + MediaPipe boot
   useEffect(() => {
