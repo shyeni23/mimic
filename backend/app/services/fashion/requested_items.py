@@ -81,6 +81,36 @@ _NAME_TERMS = {
 }
 _COLUMNS = "id,name,category,color,occasion,image_url,price,stock,gender,season,year"
 
+# This is an Indian store: "a dress for a wedding" means ethnic wear, not a
+# Western one-piece. The catalog can't express that on its own -- 722 items
+# sit in the `dress` category but only ONE is tagged `wedding`, and the 308
+# sarees live in that same category untagged -- so a generic garment word plus
+# a traditional occasion was returning French Connection midi dresses for a
+# wedding. For these occasions, prefer the ethnic garment names outright.
+_ETHNIC_OCCASIONS = {
+    "wedding", "marriage", "engagement", "reception", "sangeet", "mehendi", "haldi",
+    "ethnic", "traditional", "festival", "festive", "diwali", "puja", "pooja", "eid",
+    "navratri", "garba", "karva chauth", "onam", "pongal",
+}
+# Generic words a customer uses when she means "something to wear", which we
+# can legitimately steer. A specific request ("show me a gown") is never
+# overridden -- only these.
+_GENERIC_GARMENT_WORDS = {"dress", "outfit", "clothes", "clothing", "attire", "wear", "look"}
+_ETHNIC_BY_GENDER = {
+    "female": ["saree", "sari", "lehenga", "anarkali", "salwar", "churidar", "kurta"],
+    "male": ["sherwani", "kurta", "bandhgala", "dhoti", "nehru"],
+}
+
+
+def ethnic_terms_for(word: str, occasion: str | None, gender: str | None) -> list[str] | None:
+    """Ethnic garment names to search instead of `word`, or None to leave the
+    request alone."""
+    if not occasion or occasion.lower() not in _ETHNIC_OCCASIONS:
+        return None
+    if _stem(word) not in _GENERIC_GARMENT_WORDS:
+        return None
+    return _ETHNIC_BY_GENDER.get((gender or "").lower())
+
 
 def _name_lookup(stem: str, pattern: re.Pattern, *, depth: str = "medium", undertone: str = "neutral",
                  occasion: str | None = None, gender: str | None = None,
@@ -94,8 +124,12 @@ def _name_lookup(stem: str, pattern: re.Pattern, *, depth: str = "medium", under
     from app.services.vision.skin_tone import recommended_palette
 
     sb = get_supabase()
+    # "a dress for a wedding" in an Indian store means ethnic wear -- search
+    # those garment names instead of the literal word (see ethnic_terms_for).
+    ethnic = ethnic_terms_for(stem, occasion, gender)
+    terms = ethnic or _NAME_TERMS.get(stem, [stem])
     rows, seen = [], set()
-    for term in _NAME_TERMS.get(stem, [stem]):
+    for term in terms:
         data = (sb.table("inventory").select(_COLUMNS).ilike("name", f"%{term}%")
                 .gt("stock", 0).limit(1000).execute().data or [])
         for r in data:
@@ -103,6 +137,10 @@ def _name_lookup(stem: str, pattern: re.Pattern, *, depth: str = "medium", under
                 seen.add(r["id"])
                 rows.append(r)
     dismissed = set(dismissed_item_ids or [])
+    if ethnic:
+        # Each term is its own garment name; the caller's single-word pattern
+        # ("dress") would reject every one of them.
+        pattern = re.compile(r"\b(?:" + "|".join(re.escape(t) for t in terms) + r")s?\b", re.IGNORECASE)
     rows = [r for r in rows if r["id"] not in dismissed and pattern.search(r.get("name") or "")]
     rows = apply_catalog_filters(rows, gender)
 
@@ -149,6 +187,10 @@ def recommend_requested(requested: list[str], per_item: int = 12, **scan_kwargs)
     sections, flat = [], []
     for word in specific_items(requested)[:3]:
         category, pattern, label = _plan(word)
+        # Say what she's actually being shown: "Ethnic wear", not "Dresses",
+        # when a wedding request was steered to sarees and lehengas.
+        if ethnic_terms_for(word, scan_kwargs.get("occasion"), scan_kwargs.get("gender")):
+            label = "Ethnic wear"
         items = []
         if pattern is not None:
             try:

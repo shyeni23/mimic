@@ -287,7 +287,12 @@ export default function Recommendations() {
   // so "the second one" means the second card she sees.
   useEffect(() => {
     registerItems(products);
-    setScreenItems(products.map((p) => ({ id: String(p.id), name: p.name, color: p.color })));
+    setScreenItems(products.map((p) => ({
+      id: String(p.id), name: p.name, color: p.color,
+      // category + image_url travel too: a voice try-on resolves to one of
+      // these, and TryOnMirror needs both to render anything at all.
+      category: p.category, image_url: p.image_url,
+    })));
   }, [products, registerItems, setScreenItems]);
 
   // Voice control (docs/dataset/new_actions.json).

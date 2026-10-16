@@ -249,7 +249,10 @@ const Shopping = () => {
   }, [products, registerItems]);
 
   useEffect(() => {
-    setScreenItems(shownProducts.map((p) => ({ id: String(p.id), name: p.name, color: p.color })));
+    setScreenItems(shownProducts.map((p) => ({
+      id: String(p.id), name: p.name, color: p.color,
+      category: p.category, image_url: p.image_url,
+    })));
   }, [shownProducts, setScreenItems]);
 
   // Voice control (docs/dataset/new_actions.json).

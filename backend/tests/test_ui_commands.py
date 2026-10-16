@@ -166,3 +166,19 @@ def test_try_on_phrasings(text, expected_id):
 def test_not_a_try_on(text):
     got = actions(text) or []
     assert "start_tryon" not in [a for a, _ in got], f"{text!r} -> {got}"
+
+
+def test_wedding_dress_means_ethnic_wear_in_an_indian_store():
+    """722 items sit in the `dress` category but only ONE is tagged wedding,
+    and the 308 sarees live there untagged -- so a wedding request was
+    returning Western midi dresses."""
+    from app.services.fashion.requested_items import ethnic_terms_for
+    assert "saree" in ethnic_terms_for("dress", "wedding", "female")
+    assert "lehenga" in ethnic_terms_for("dress", "engagement", "female")
+    assert "sherwani" in ethnic_terms_for("outfit", "wedding", "male")
+    # A non-traditional occasion keeps Western dresses.
+    assert ethnic_terms_for("dress", "party", "female") is None
+    assert ethnic_terms_for("dress", None, "female") is None
+    # A specific garment request is never overridden.
+    assert ethnic_terms_for("gown", "wedding", "female") is None
+    assert ethnic_terms_for("heels", "wedding", "female") is None

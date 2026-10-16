@@ -358,10 +358,23 @@ export function VoiceAgentProvider({ children }) {
           } catch (err) { showToast('Could not match wardrobe', 'error'); }
           break;
         case 'start_tryon': {
-          // Resolve the id to an item (so TryOnMirror has image + category),
-          // then open the page. The page reads it from SessionContext.
-          const item = action.payload?.item || getItem(action.payload?.item_id);
-          setTryonItem(item || null);
+          // MERGE, don't pick one: the item that comes back from the backend
+          // was resolved against the on-screen list, which carries only what
+          // fits in a chat payload. The local cache holds the full product
+          // (image_url, category) -- without those TryOnMirror has nothing to
+          // overlay and the mirror just shows the camera.
+          const fromVoice = action.payload?.item || {};
+          const cached = getItem(action.payload?.item_id || fromVoice.id) || {};
+          const item = { ...fromVoice, ...cached, ...(fromVoice.image_url ? { image_url: fromVoice.image_url } : {}) };
+          if (!item.image_url) {
+            showToast("I can't try that one on -- it has no photo to overlay.", 'error');
+            break;
+          }
+          if (!['top', 'dress', 'bottom'].includes(item.category)) {
+            showToast(`Try-on only works for clothing right now, not ${item.category || 'that'}.`, 'info');
+            break;
+          }
+          setTryonItem(item);
           navigate('/virtual-tryon');
           break;
         }
