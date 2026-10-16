@@ -72,6 +72,7 @@ async def scan(background_tasks: BackgroundTasks, session_id: str = Form(...), f
         raise HTTPException(status_code=400, detail=str(e))
 
     image = extraction.pop("_image")
+    segmentation_mask = extraction.pop("_segmentation_mask", None)
 
     # A frame with no detectable person must be a hard failure, not a
     # "successful" scan of all-unknowns -- confirmed live: a blank frame came
@@ -106,7 +107,9 @@ async def scan(background_tasks: BackgroundTasks, session_id: str = Form(...), f
                     "or switch on the mirror light, then try again."),
         )
 
-    body = classify_body_shape(extraction["pose_landmarks"])
+    # The mask is what makes hourglass and apple reachable -- Pose has no
+    # waist landmark, so the waist comes from the body outline.
+    body = classify_body_shape(extraction["pose_landmarks"], segmentation_mask)
     face = classify_face_shape(extraction["face_landmarks"], image)
     skin = extract_skin_tone(image, extraction["face_landmarks"])
 

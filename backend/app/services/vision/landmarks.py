@@ -24,6 +24,11 @@ _pose = mp_pose.Pose(
     static_image_mode=True,
     model_complexity=1,
     min_detection_confidence=0.5,
+    # Segmentation gives a body silhouette, which is the only way to measure
+    # the WAIST: Pose has no waist landmark, so without it hourglass and
+    # apple are indistinguishable from rectangle and only 3 of the 5 shapes
+    # were ever detectable. See body_shape.classify_body_shape.
+    enable_segmentation=True,
 )
 
 # MediaPipe Pose landmark indices used to locate the head for the face-crop
@@ -68,16 +73,23 @@ def extract_face_landmarks(image_bgr: np.ndarray) -> list[dict] | None:
 
 
 def extract_pose_landmarks(image_bgr: np.ndarray) -> list[dict] | None:
+    return _run_pose(image_bgr)[0]
+
+
+def _run_pose(image_bgr: np.ndarray):
+    """(landmarks, segmentation_mask). The mask is a float array the size of
+    the frame, ~1 inside the person -- body_shape uses it to measure real
+    silhouette width at waist height, which no landmark provides."""
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     result = _pose.process(rgb)
     if not result.pose_landmarks:
-        return None
+        return None, None
     h, w = image_bgr.shape[:2]
-    landmarks = result.pose_landmarks.landmark
-    return [
+    landmarks = [
         {"x": lm.x * w, "y": lm.y * h, "z": lm.z, "visibility": lm.visibility}
-        for lm in landmarks
+        for lm in result.pose_landmarks.landmark
     ]
+    return landmarks, getattr(result, "segmentation_mask", None)
 
 
 def _crop_head_region(image_bgr: np.ndarray, pose_landmarks: list[dict], target_size: int = 480) -> np.ndarray | None:
@@ -147,7 +159,7 @@ def extract_all(file_bytes: bytes) -> dict:
     coordinate space as the landmarks passed alongside them.
     """
     image = decode_image(file_bytes)
-    pose = extract_pose_landmarks(image)
+    pose, segmentation_mask = _run_pose(image)
     face = extract_face_landmarks(image)
     face_image = image
 
@@ -163,5 +175,6 @@ def extract_all(file_bytes: bytes) -> dict:
         "image_shape": {"height": image.shape[0], "width": image.shape[1]},
         "face_landmarks": face,
         "pose_landmarks": pose,
+        "_segmentation_mask": segmentation_mask,   # in-process only, like _image
         "_image": face_image,  # kept in-process only, stripped before returning to client
     }

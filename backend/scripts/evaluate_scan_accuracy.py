@@ -54,7 +54,7 @@ HEIGHT_TOLERANCE_CM = 5.0
 def analyse(image_path: Path) -> dict:
     """Run the real scan pipeline on one photo -- the same code /api/vision/scan
     calls, so the numbers reflect production behaviour, not a reimplementation."""
-    from app.services.vision.landmarks import extract_pose_landmarks, extract_face_landmarks
+    from app.services.vision.landmarks import _run_pose, extract_face_landmarks
     from app.services.vision.body_shape import classify_body_shape, estimate_body_size
     from app.services.vision.face_shape import classify_face_shape
     from app.services.vision.skin_tone import extract_skin_tone
@@ -65,12 +65,16 @@ def analyse(image_path: Path) -> dict:
     if img is None:
         return {"error": "could not read image"}
 
-    pose = extract_pose_landmarks(img) or []
+    # _run_pose also returns the segmentation mask, which classify_body_shape
+    # needs to measure the waist (hourglass/apple). Without it the evaluation
+    # would under-report body-shape accuracy versus what production does.
+    pose, seg_mask = _run_pose(img)
+    pose = pose or []
     face = extract_face_landmarks(img) or []
     out = {}
 
     try:
-        out["body_shape"] = classify_body_shape(pose).get("body_shape")
+        out["body_shape"] = classify_body_shape(pose, seg_mask).get("body_shape")
     except Exception as e:
         out["body_shape_error"] = str(e)
     try:

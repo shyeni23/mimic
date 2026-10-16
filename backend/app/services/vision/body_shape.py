@@ -30,7 +30,45 @@ def _dist(p1: dict, p2: dict) -> float:
     return math.hypot(p1["x"] - p2["x"], p1["y"] - p2["y"])
 
 
-def classify_body_shape(pose_landmarks: list[dict]) -> dict:
+def _silhouette_width(mask, y: float, frame_w: int) -> float | None:
+    """Width of the person, in pixels, on the scan line at height `y`.
+
+    MediaPipe Pose has no waist landmark, so the waist can only come from the
+    body outline itself. The segmentation mask is ~1 inside the person; the
+    width is the span between the first and last such pixel on that row.
+    Returns None when the row is empty or the silhouette is split (an arm
+    held away from the body makes the span meaningless).
+    """
+    import numpy as np
+
+    if mask is None:
+        return None
+    h = mask.shape[0]
+    row_idx = int(round(y))
+    if not 0 <= row_idx < h:
+        return None
+    # Average a few rows: a single row is noisy at clothing edges.
+    lo, hi = max(0, row_idx - 2), min(h, row_idx + 3)
+    band = mask[lo:hi] > 0.5
+    if not band.any():
+        return None
+    widths = []
+    for row in band:
+        cols = np.flatnonzero(row)
+        if cols.size == 0:
+            continue
+        span = cols[-1] - cols[0] + 1
+        # Reject a row where the person's pixels are sparse within the span:
+        # that means an outstretched arm, not torso width.
+        if cols.size / span < 0.75:
+            continue
+        widths.append(span)
+    if not widths:
+        return None
+    return float(np.median(widths))
+
+
+def classify_body_shape(pose_landmarks: list[dict], segmentation_mask=None) -> dict:
     if not pose_landmarks or len(pose_landmarks) < 29:
         return {"body_shape": "unknown", "confidence": 0.0, "reason": "insufficient landmarks"}
 
@@ -82,7 +120,28 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
     # visually read as balanced/rectangle -- classification compares against
     # this calibrated baseline instead of the naive geometric 1.0.
     NEUTRAL_RATIO = 1.15
-    ratio = (shoulder_width / hip_width) / NEUTRAL_RATIO
+
+    # SILHOUETTE MEASUREMENTS (see _silhouette_width). The waist is only
+    # obtainable this way -- Pose has no waist landmark -- and when the mask
+    # is available the shoulder and hip spans should come from it too: a
+    # landmark span measures JOINT separation, which sits inside the body
+    # outline, so comparing a silhouette waist against landmark shoulders
+    # would make every waist look nipped. Measuring all three the same way
+    # also removes the need for the NEUTRAL_RATIO fudge.
+    shoulder_mid_y = (ls["y"] + rs["y"]) / 2
+    hip_mid_y = (lh["y"] + rh["y"]) / 2
+    # The waist sits roughly 55% of the way from shoulders down to hips.
+    waist_y = shoulder_mid_y + (hip_mid_y - shoulder_mid_y) * 0.55
+    sil_shoulder = _silhouette_width(segmentation_mask, shoulder_mid_y, 0)
+    sil_hip = _silhouette_width(segmentation_mask, hip_mid_y, 0)
+    waist_width = _silhouette_width(segmentation_mask, waist_y, 0)
+
+    if sil_shoulder and sil_hip:
+        ratio = sil_shoulder / sil_hip          # like for like, no calibration
+        ratio_source = "silhouette"
+    else:
+        ratio = (shoulder_width / hip_width) / NEUTRAL_RATIO
+        ratio_source = "landmarks"
 
     # Confidence scales with how far the ratio sits from the nearest decision
     # boundary -- a ratio just barely past the cutoff is a much shakier call
@@ -103,7 +162,28 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
 
     BROAD_SHOULDER, BROAD_HIP = 1.08, 0.93
     reasons = []
-    if ratio >= BROAD_SHOULDER:
+
+    waist_ratio = None
+    if waist_width and sil_shoulder and sil_hip:
+        # How much the waist nips in compared with the wider of the two ends.
+        waist_ratio = waist_width / max(sil_shoulder, sil_hip)
+
+    # Hourglass: shoulders and hips balanced AND a clearly defined waist.
+    # Apple: the midsection is the widest part.
+    DEFINED_WAIST = 0.80      # waist <= 80% of the widest point
+    THICK_WAIST = 1.00        # waist at or beyond the widest point
+    BALANCED = (BROAD_HIP, BROAD_SHOULDER)
+
+    if waist_ratio is not None and waist_ratio >= THICK_WAIST:
+        shape = "apple"
+        conf = _confidence(waist_ratio - THICK_WAIST)
+        reasons.append("the midsection is the widest part of the torso")
+    elif (waist_ratio is not None and waist_ratio <= DEFINED_WAIST
+            and BALANCED[0] < ratio < BALANCED[1]):
+        shape = "hourglass"
+        conf = _confidence(DEFINED_WAIST - waist_ratio)
+        reasons.append("shoulders and hips are balanced with a clearly defined waist")
+    elif ratio >= BROAD_SHOULDER:
         shape = "inverted_triangle"
         conf = _confidence(ratio - BROAD_SHOULDER)
         reasons.append("shoulders are noticeably wider than hips")
@@ -115,12 +195,9 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
         shape = "rectangle"
         conf = _confidence(min(BROAD_SHOULDER - ratio, ratio - BROAD_HIP))
         reasons.append("shoulders and hips are close in width")
+        if waist_ratio is None:
+            reasons.append("waist could not be measured, so hourglass/apple were not considered")
 
-    # Distinguishing hourglass/apple from rectangle needs an actual waist
-    # measurement -- MediaPipe Pose has no waist landmark, so rather than
-    # fabricate one (the previous fixed-multiplier "waist_width" made
-    # hourglass mathematically unreachable -- see git history), "rectangle"
-    # is the honest result for balanced proportions.
     if conf < 0.4:
         reasons.append("close to a category boundary -- treat this reading as approximate")
 
@@ -139,6 +216,9 @@ def classify_body_shape(pose_landmarks: list[dict]) -> dict:
             "hip_width_px": round(hip_width, 1),
             "torso_height_px": round(torso_height, 1),
             "shoulder_to_hip_ratio_calibrated": round(ratio, 3),
+            "ratio_source": ratio_source,
+            "waist_width_px": round(waist_width, 1) if waist_width else None,
+            "waist_to_widest_ratio": round(waist_ratio, 3) if waist_ratio else None,
         },
     }
 
