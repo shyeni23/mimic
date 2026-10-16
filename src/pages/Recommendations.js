@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   RiSparklingLine, RiHeartLine, RiHeartFill,
-  RiAddLine, RiStarFill, RiShieldCheckLine,
+  RiAddLine, RiStarFill, RiShieldCheckLine, RiCameraLine,
   RiPaletteLine, RiRulerLine, RiErrorWarningLine,
   RiLoader4Line,
 } from 'react-icons/ri';
@@ -82,8 +83,9 @@ export default function Recommendations() {
     sessionId, scanData, setScanData,
     pendingRecommendations, setPendingRecommendations,
     highlightedItemId, setHighlightedItemId,
-    fireAgentEvent, liked, likeItem, unlikeItem, registerItems, setScreenItems,
+    fireAgentEvent, liked, likeItem, unlikeItem, registerItems, setScreenItems, setTryonItem,
   } = useSession();
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState('All');
   const [occasions, setOccasions] = useState(DEFAULT_OCCASIONS);
   const [activeOccasion, setActiveOccasion] = useState('All');
@@ -421,8 +423,30 @@ export default function Recommendations() {
                 </div>
               </div>
 
+              {/* The customer's own choice of what to see on themselves.
+                  Only clothing can be overlaid on a body, and only with a
+                  photo to cut out -- see TryOnMirror's GARMENT_LAYOUT. */}
+              {['top', 'dress', 'bottom'].includes(product.category) && product.image_url && (
+                <AnimatedButton
+                  variant="primary"
+                  size="small"
+                  fullWidth
+                  icon={<RiCameraLine />}
+                  onClick={() => {
+                    markInteraction();
+                    logEventNow(sessionId, product.id, 'tryon', {
+                      source: 'recommendations', action: 'try_on',
+                    });
+                    setTryonItem(product);
+                    navigate('/virtual-tryon');
+                  }}
+                >
+                  Try It On
+                </AnimatedButton>
+              )}
+
               <AnimatedButton
-                variant="primary"
+                variant="secondary"
                 size="small"
                 fullWidth
                 icon={<RiAddLine />}
