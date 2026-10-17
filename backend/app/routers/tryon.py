@@ -12,7 +12,7 @@ without it.
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.db.supabase_client import get_supabase
-from app.services.fashion.photoreal_tryon import backend, generate_tryon, is_available, model_category
+from app.services.fashion.photoreal_tryon import generate_tryon, is_available, model_category, readiness
 
 router = APIRouter(prefix="/api/tryon", tags=["virtual try-on (Module 5)"])
 
@@ -22,9 +22,11 @@ MAX_PHOTO_BYTES = 8 * 1024 * 1024
 @router.get("/available")
 def tryon_available() -> dict:
     """So the UI can hide the button rather than offer something that errors."""
-    # `backend` lets the UI set expectations: the free queue can take
-    # minutes, the paid one is seconds.
-    return {"available": is_available(), "backend": backend()}
+    # Only promise what will actually work: an unconfigured free backend
+    # reports needs_token so the UI hides the button rather than failing in
+    # front of a customer.
+    r = readiness()
+    return {"available": r["state"] == "ready", **r}
 
 
 @router.post("/generate")

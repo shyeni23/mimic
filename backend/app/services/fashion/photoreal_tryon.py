@@ -60,6 +60,29 @@ def is_available() -> bool:
     return backend() != "none"
 
 
+def readiness() -> dict:
+    """What the UI should actually promise the customer.
+
+    'ready'    -- will work now (Replicate, or HF with a token)
+    'needs_token' -- the free backend is selected but anonymous callers get
+                  almost no ZeroGPU quota, so it will very likely fail.
+                  Verified live: correct arguments, still refused. Better to
+                  say so than to offer a button that breaks mid-demo.
+    'off'      -- not configured at all
+    """
+    which = backend()
+    if which == "replicate":
+        return {"state": "ready", "backend": which, "typical_seconds": 15}
+    if which == "huggingface":
+        if settings.hf_token:
+            return {"state": "ready", "backend": which, "typical_seconds": 60,
+                    "note": "Free shared GPU -- can queue at busy times."}
+        return {"state": "needs_token", "backend": which,
+                "note": ("Add a free HF_TOKEN to backend/.env to enable this. "
+                         "The shared GPU refuses anonymous requests.")}
+    return {"state": "off", "backend": "none"}
+
+
 def _generate_huggingface(person_jpeg: bytes, garment_url: str, description: str) -> dict:
     """Free Hugging Face Space. Slower and queue-dependent, same model."""
     import tempfile
@@ -74,10 +97,25 @@ def _generate_huggingface(person_jpeg: bytes, garment_url: str, description: str
     try:
         person_path = tmpdir / "person.jpg"
         person_path.write_bytes(person_jpeg)
+
+        # The garment must be UPLOADED, not linked. Product images are served
+        # from this machine (http://localhost:8000/media/...), which a remote
+        # Space cannot fetch -- it failed with a bare upstream exception that
+        # looked exactly like a quota refusal. Fetch it here and send the
+        # bytes.
+        garment_path = tmpdir / "garment.jpg"
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True) as c:
+                resp = c.get(garment_url)
+                resp.raise_for_status()
+                garment_path.write_bytes(resp.content)
+        except Exception as e:
+            return {"error": f"could not read the garment image: {e}"}
+
         client = Client(HF_SPACE, token=settings.hf_token or None)
         result = client.predict(
             dict={"background": handle_file(str(person_path)), "layers": [], "composite": None},
-            garm_img=handle_file(garment_url),
+            garm_img=handle_file(str(garment_path)),
             garment_des=description or "clothing item",
             is_checked=True,        # auto-generate the body mask
             is_checked_crop=True,   # auto-crop to the person
