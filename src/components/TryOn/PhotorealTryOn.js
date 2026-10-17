@@ -18,7 +18,8 @@ import './PhotorealTryOn.css';
 
 export default function PhotorealTryOn({ item, videoEl, sessionId }) {
   const [available, setAvailable] = useState(false);
-  const [state, setState] = useState('idle');   // idle | working | done | error
+  const [state, setState] = useState('idle');   // idle | counting | working | done | error
+  const [count, setCount] = useState(0);
   const [resultUrl, setResultUrl] = useState(null);
   const [message, setMessage] = useState('');
   const elapsedRef = useRef(null);
@@ -47,16 +48,43 @@ export default function PhotorealTryOn({ item, videoEl, sessionId }) {
     const c = document.createElement('canvas');
     c.width = video.videoWidth;
     c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.92));
+    const ctx = c.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    // The generated result is only as good as this frame, and a dark one
+    // produces a muddy, unconvincing try-on. Check before spending a
+    // generation on it.
+    const { data } = ctx.getImageData(0, 0, c.width, c.height);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4 * 97) sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+    const brightness = sum / (data.length / (4 * 97));
+    return new Promise((resolve) => c.toBlob((b) => resolve({ blob: b, brightness }), 'image/jpeg', 0.92));
+  };
+
+  /** 3-2-1 so the customer can actually pose. Capturing on the tap caught
+   *  them looking down at the button, and the input photo decides how good
+   *  the generated result is. */
+  const start = () => {
+    setState('counting');
+    setMessage('');
+    let n = 3;
+    setCount(n);
+    const tick = setInterval(() => {
+      n -= 1;
+      setCount(n);
+      if (n <= 0) { clearInterval(tick); run(); }
+    }, 1000);
   };
 
   const run = async () => {
     setState('working');
     setMessage('');
     try {
-      const blob = await capture();
-      if (!blob) throw new Error("couldn't capture the camera");
+      const shot = await capture();
+      if (!shot?.blob) throw new Error("couldn't capture the camera");
+      if (shot.brightness < 55) {
+        throw new Error('It\'s too dark for a good result — switch on more light and try again');
+      }
+      const blob = shot.blob;
       const form = new FormData();
       form.append('item_id', item.id);
       form.append('photo', blob, 'person.jpg');
@@ -79,12 +107,28 @@ export default function PhotorealTryOn({ item, videoEl, sessionId }) {
     <>
       <button
         className="photoreal-btn"
-        onClick={run}
-        disabled={state === 'working'}
+        onClick={start}
+        disabled={state === 'working' || state === 'counting'}
       >
         <RiSparklingLine />
-        {state === 'working' ? `Creating your look… ${elapsed}s` : 'See it properly on me'}
+        {state === 'counting' ? `Get ready… ${count}`
+          : state === 'working' ? `Creating your look… ${elapsed}s`
+            : 'See it properly on me'}
       </button>
+
+      {state === 'counting' && (
+        <div className="photoreal-countdown">
+          <span>{count}</span>
+          <p>Stand facing the mirror</p>
+        </div>
+      )}
+
+      {state === 'working' && (
+        <div className="photoreal-countdown photoreal-generating">
+          <p>Creating your look…</p>
+          <small>About 15 seconds. You can move now.</small>
+        </div>
+      )}
 
       {state === 'error' && (
         <div className="photoreal-msg photoreal-error">

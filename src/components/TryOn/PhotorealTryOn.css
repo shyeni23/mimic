@@ -74,3 +74,37 @@
   cursor: pointer;
 }
 .photoreal-result-bar button:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* Countdown over the mirror. The button is too small to pose to, and the
+   customer needs to be looking at the camera, not at a control. */
+.photoreal-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 2050;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(6, 6, 16, 0.35);
+  color: #fff;
+  pointer-events: none;
+}
+.photoreal-countdown span {
+  font-size: clamp(90px, 18vw, 180px);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+}
+.photoreal-countdown p {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 500;
+}
+.photoreal-countdown small {
+  font-size: 1rem;
+  opacity: .8;
+}
+.photoreal-generating {
+  background: rgba(6, 6, 16, 0.6);
+}
