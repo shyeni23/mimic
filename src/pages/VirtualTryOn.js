@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   RiCameraLine,
@@ -21,6 +21,7 @@ import { useSession } from '../context/SessionContext';
 import { logEventNow } from '../hooks/useEventLogger';
 import { useAriaAction } from '../utils/ariaBus';
 import TryOnMirror from '../components/TryOn/TryOnMirror';
+import PhotorealTryOn from '../components/TryOn/PhotorealTryOn';
 import '../components/TryOn/TryOnMirror.css';
 import './VirtualTryOn.css';
 
@@ -59,6 +60,8 @@ export default function VirtualTryOn() {
   const [capturedPhoto, setCapturedPhoto] = useState(null);
   const [isFlipped, setIsFlipped] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
+  // Live frame source for photorealistic try-on.
+  const mirrorVideoRef = useRef(null);
 
   const handleCapture = () => {
     setShowFlash(true);
@@ -144,6 +147,7 @@ export default function VirtualTryOn() {
                   lighting={lightingMode}
                   zoom={zoom}
                   flipped={isFlipped}
+                  videoRef={mirrorVideoRef}
                 />
                 {!tryonItem && (
                   <div className="camera-placeholder" style={{ pointerEvents: 'none' }}>
@@ -311,6 +315,13 @@ export default function VirtualTryOn() {
           <GlassCard className="side-panel-card" hover={false}>
             <h3 className="side-panel-title">Current Outfit</h3>
             <p className="side-panel-subtitle">Items being tried on</p>
+
+            {/* The live mirror shows colour and proportion instantly; this
+                generates the customer actually WEARING it, with real drape.
+                Hidden entirely when the backend has no try-on token. */}
+            {tryonItem && (
+              <PhotorealTryOn item={tryonItem} videoEl={mirrorVideoRef} sessionId={sessionId} />
+            )}
 
             <div className="tryon-items-list">
               {liveItems.map((item, index) => (

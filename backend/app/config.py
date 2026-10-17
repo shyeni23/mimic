@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     # integration in this project (FashionCLIP/DeepFace weight-missing paths).
     openweather_api_key: str = ""
 
+    # ---- Photorealistic try-on (Module 5, optional) ----
+    # Replicate hosts the diffusion try-on model, so no local GPU is needed.
+    # Empty = the feature is simply absent and the live overlay is all the
+    # customer gets; the app never breaks for want of it.
+    # Get a token at https://replicate.com/account/api-tokens
+    replicate_api_token: str = ""
+
     # DEMO / STORE-SPECIFIC: force every scan into one department. "female"
     # = the mirror only ever recommends women's (and unisex) items and the
     # detected gender is ignored; the Range toggle on the Recommendations

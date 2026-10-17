@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import vision, recommend, voice, chat, agent_events, user_context, outfit_recommendation, staff, inventory, events, wardrobe
+from app.routers import vision, recommend, voice, chat, agent_events, user_context, outfit_recommendation, staff, inventory, events, wardrobe, tryon
 
 
 @asynccontextmanager
@@ -110,6 +110,7 @@ app.include_router(staff.router)
 app.include_router(inventory.router)
 app.include_router(events.router)
 app.include_router(wardrobe.router)
+app.include_router(tryon.router)
 
 
 @app.get("/")

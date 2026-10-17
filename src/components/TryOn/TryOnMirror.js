@@ -61,8 +61,10 @@ const GARMENT_LAYOUT = {
  *                flipped={false} onPoseReady={...} />
  */
 export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flipped = false,
-                                     onPoseReady, onError }) {
-  const videoRef = useRef(null);
+                                     onPoseReady, onError, videoRef: externalVideoRef }) {
+  const internalVideoRef = useRef(null);
+  // The page needs the live frame to send for photorealistic try-on.
+  const videoRef = externalVideoRef || internalVideoRef;
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   const poseRef = useRef(null);

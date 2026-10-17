@@ -1,0 +1,76 @@
+/* "See it properly on me" -- sits under the mirror, clearly secondary to
+   the live view but obviously available. */
+.photoreal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px 20px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6c63ff, #8b5cf6);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .15s ease;
+}
+.photoreal-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.photoreal-btn:disabled { opacity: .75; cursor: wait; }
+
+.photoreal-msg {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: .9rem;
+  text-align: center;
+}
+.photoreal-error {
+  background: rgba(120, 25, 40, 0.22);
+  color: #ffd9e0;
+}
+
+/* The generated image, full screen -- this is the thing the customer came
+   to see, so it gets the whole mirror. */
+.photoreal-result {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  background: rgba(6, 6, 16, 0.94);
+  backdrop-filter: blur(10px);
+}
+.photoreal-result img {
+  max-width: min(560px, 92vw);
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.photoreal-result-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #fff;
+  font-size: 1.05rem;
+}
+.photoreal-result-bar button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.photoreal-result-bar button:hover { background: rgba(255, 255, 255, 0.12); }
