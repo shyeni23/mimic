@@ -27,3 +27,18 @@ export function isConversationActive(windowMs = 45000) {
 export function resetConversationActivity() {
   lastActivityAt = 0;
 }
+
+/**
+ * Presence polling pauses while the try-on mirror is live.
+ *
+ * Both run MediaPipe Pose: presence sends a frame to the backend every 1.5s
+ * (server-side inference), try-on runs it in the browser. On a CPU-only
+ * laptop they fight for the same cores -- try-on's first inference measured
+ * ~12s in isolation but sat on "Getting the mirror ready..." past a minute
+ * with presence also running. The customer is plainly present while using
+ * the mirror, so polling for them is wasted work anyway.
+ */
+let presenceSuspended = false;
+export const suspendPresence = () => { presenceSuspended = true; };
+export const resumePresence = () => { presenceSuspended = false; };
+export const isPresenceSuspended = () => presenceSuspended;

@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../utils/api';
+import { suspendPresence, resumePresence } from '../../utils/presenceActivity';
 
 const LIGHTING = {
   natural: 'transparent',
@@ -22,6 +23,14 @@ const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.16754694
 const TARGET_FPS = 12;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 const MAX_CONSECUTIVE_FAILURES = 5;
+// A single inference that never settles. pose.send() REJECTING was handled;
+// hanging was not -- inFlightRef stayed true, the loop did nothing further,
+// the failure counter never advanced, and the mirror sat on "Getting the
+// mirror ready..." indefinitely. Observed live for over a minute.
+const SEND_TIMEOUT_MS = 20000;
+// The whole warm-up: model download plus first inference. Past this,
+// something is wrong that waiting will not fix (slow or blocked CDN).
+const WARMUP_TIMEOUT_MS = 45000;
 
 // MediaPipe Pose landmark indices (same ones body_shape.py uses).
 const L_SHOULDER = 11;
@@ -63,6 +72,7 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
   const failuresRef = useRef(0);         // consecutive send() rejections
   const stoppedRef = useRef(false);      // hard stop after repeated failures
   const statusRef = useRef('loading');   // read inside onPoseResults (not reactive)
+  const warmupTimerRef = useRef(null);
   const streamRef = useRef(null);
   const [status, setStatus] = useState('loading');  // loading | ready | error
   const [errorMessage, setErrorMessage] = useState('');
@@ -99,6 +109,8 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
   // ---------- Camera + MediaPipe boot
   useEffect(() => {
     let cancelled = false;
+    // Free the CPU for pose inference -- see presenceActivity.suspendPresence.
+    suspendPresence();
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -131,6 +143,17 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
         statusRef.current = 'warming';
         setStatus('warming');
         onPoseReady?.();
+        // Watchdog: the model is fetched from a CDN on first use, and a slow
+        // or blocked network leaves no other signal that anything is wrong.
+        warmupTimerRef.current = setTimeout(() => {
+          if (statusRef.current === 'warming') {
+            stoppedRef.current = true;
+            statusRef.current = 'error';
+            setErrorMessage('The body-tracking model is taking too long to load. '
+              + 'Check the internet connection and reload the page.');
+            setStatus('error');
+          }
+        }, WARMUP_TIMEOUT_MS);
         loop();
       } catch (err) {
         if (cancelled) return;
@@ -149,6 +172,8 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
       // would queue another frame against a closed Pose. This flag is what
       // actually stops it; cancelAnimationFrame alone cannot.
       stoppedRef.current = true;
+      resumePresence();
+      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       try { poseRef.current?.close(); } catch { /* MediaPipe closed */ }
@@ -172,7 +197,15 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
       inFlightRef.current = true;
       lastFrameAtRef.current = now;
       try {
-        await pose.send({ image: video });
+        // Timed: a hung send would otherwise block the loop forever.
+        let timer;
+        await Promise.race([
+          pose.send({ image: video }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`pose.send timed out after ${SEND_TIMEOUT_MS}ms`)),
+                               SEND_TIMEOUT_MS);
+          }),
+        ]).finally(() => clearTimeout(timer));
         failuresRef.current = 0;
       } catch (err) {
         failuresRef.current += 1;
@@ -196,7 +229,11 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
     // First results back == the model is live. Clear the warming message.
     // Only promote OUT OF warming -- a late result must never overwrite a
     // real error and hide it from the customer.
-    if (statusRef.current === 'warming') { statusRef.current = 'ready'; setStatus('ready'); }
+    if (statusRef.current === 'warming') {
+      statusRef.current = 'ready';
+      setStatus('ready');
+      if (warmupTimerRef.current) { clearTimeout(warmupTimerRef.current); warmupTimerRef.current = null; }
+    }
     const overlay = overlayRef.current;
     const video = videoRef.current;
     if (!overlay || !video) return;

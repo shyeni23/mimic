@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { apiPostJSON } from '../utils/api';
-import { isConversationActive, resetConversationActivity } from '../utils/presenceActivity';
+import { isConversationActive, resetConversationActivity, isPresenceSuspended } from '../utils/presenceActivity';
 
 /**
  * Global person-presence detector.
@@ -65,6 +65,10 @@ export function usePersonPresence({ enabled = true } = {}) {
   }, []);
 
   const checkPresence = useCallback(async () => {
+    // Try-on is running pose inference in the browser; a second MediaPipe
+    // job on the same CPU is what stalled its warm-up. The customer is
+    // obviously present while using the mirror, so skip the check entirely.
+    if (isPresenceSuspended()) return;
     const blob = await captureFrame();
     if (!blob) return;
 
