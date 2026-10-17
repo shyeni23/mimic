@@ -38,8 +38,77 @@ POLL_TIMEOUT_S = 90
 POLL_INTERVAL_S = 1.5
 
 
+# FREE path: the same IDM-VTON model, running on Hugging Face's shared
+# ZeroGPU. No card, no token needed. The trade-off is a public queue --
+# minutes at busy times, and the Space can be down entirely -- so Replicate
+# stays the paid option for when it has to work on demand.
+HF_SPACE = "yisol/IDM-VTON"
+HF_TIMEOUT_S = 300
+
+
+def backend() -> str:
+    """Which try-on backend is in use: 'replicate' (paid, reliable),
+    'huggingface' (free, queued) or 'none'."""
+    if settings.replicate_api_token:
+        return "replicate"
+    if settings.tryon_use_free_space:
+        return "huggingface"
+    return "none"
+
+
 def is_available() -> bool:
-    return bool(settings.replicate_api_token)
+    return backend() != "none"
+
+
+def _generate_huggingface(person_jpeg: bytes, garment_url: str, description: str) -> dict:
+    """Free Hugging Face Space. Slower and queue-dependent, same model."""
+    import tempfile
+    from pathlib import Path
+
+    try:
+        from gradio_client import Client, handle_file
+    except ImportError:
+        return {"error": "gradio_client isn't installed (pip install gradio_client)"}
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="tryon_"))
+    try:
+        person_path = tmpdir / "person.jpg"
+        person_path.write_bytes(person_jpeg)
+        client = Client(HF_SPACE, token=settings.hf_token or None)
+        result = client.predict(
+            dict={"background": handle_file(str(person_path)), "layers": [], "composite": None},
+            garm_img=handle_file(garment_url),
+            garment_des=description or "clothing item",
+            is_checked=True,        # auto-generate the body mask
+            is_checked_crop=True,   # auto-crop to the person
+            denoise_steps=30,
+            seed=42,
+            api_name="/tryon",
+        )
+        # Returns (generated_image_path, masked_image_path).
+        out = result[0] if isinstance(result, (list, tuple)) else result
+        if not out:
+            return {"error": "the free try-on service returned no image"}
+        data = Path(out).read_bytes()
+        return {"image_data": data, "mime": "image/png"}
+    except Exception as e:
+        msg = str(e)
+        low = msg.lower()
+        # The Space is ZeroGPU: anonymous callers get little or no GPU quota,
+        # and it reports that as a bare "upstream Gradio app has raised an
+        # exception" with no detail. Verified live -- the API signature and
+        # inputs were correct and it still failed, which is what pointed at
+        # quota. A free HF account token is usually enough to fix it.
+        if ("quota" in low or "gpu" in low or "exceeded" in low
+                or "has raised an exception" in low):
+            hint = ("" if settings.hf_token else
+                    " Adding a free HF_TOKEN to backend/.env usually fixes this -- "
+                    "the shared GPU gives anonymous callers almost no quota.")
+            return {"error": f"The free try-on service turned the request away.{hint}"}
+        return {"error": f"free try-on failed: {msg[:200]}"}
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _data_url(image_bytes: bytes, mime: str = "image/jpeg") -> str:
@@ -56,8 +125,11 @@ def generate_tryon(person_jpeg: bytes, garment_url: str, *,
     category maps to what the model expects for garment placement:
     upper_body | lower_body | dresses.
     """
-    if not is_available():
-        return {"error": "photorealistic try-on is not configured (REPLICATE_API_TOKEN)"}
+    which = backend()
+    if which == "none":
+        return {"error": "photorealistic try-on is not configured"}
+    if which == "huggingface":
+        return _generate_huggingface(person_jpeg, garment_url, description)
 
     headers = {
         "Authorization": f"Bearer {settings.replicate_api_token}",

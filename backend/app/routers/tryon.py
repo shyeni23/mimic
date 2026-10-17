@@ -12,7 +12,7 @@ without it.
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.db.supabase_client import get_supabase
-from app.services.fashion.photoreal_tryon import generate_tryon, is_available, model_category
+from app.services.fashion.photoreal_tryon import backend, generate_tryon, is_available, model_category
 
 router = APIRouter(prefix="/api/tryon", tags=["virtual try-on (Module 5)"])
 
@@ -22,7 +22,9 @@ MAX_PHOTO_BYTES = 8 * 1024 * 1024
 @router.get("/available")
 def tryon_available() -> dict:
     """So the UI can hide the button rather than offer something that errors."""
-    return {"available": is_available()}
+    # `backend` lets the UI set expectations: the free queue can take
+    # minutes, the paid one is seconds.
+    return {"available": is_available(), "backend": backend()}
 
 
 @router.post("/generate")
@@ -77,4 +79,11 @@ async def tryon_generate(
         except Exception as e:
             print(f"[tryon] event log failed (non-fatal): {e}")
 
-    return {"image_url": result["image_url"], "item": {"id": item["id"], "name": item.get("name")}}
+    meta = {"id": item["id"], "name": item.get("name")}
+    if "image_data" in result:
+        # The free Space hands back the image itself, not a hosted URL, so
+        # inline it rather than standing up storage for a transient result.
+        import base64
+        b64 = base64.b64encode(result["image_data"]).decode()
+        return {"image_url": f"data:{result.get('mime', 'image/png')};base64,{b64}", "item": meta}
+    return {"image_url": result["image_url"], "item": meta}

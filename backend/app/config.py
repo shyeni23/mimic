@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # customer gets; the app never breaks for want of it.
     # Get a token at https://replicate.com/account/api-tokens
     replicate_api_token: str = ""
+    # FREE alternative: the same model on Hugging Face's shared ZeroGPU.
+    # No payment, but a public queue -- fine for demos and testing, not for
+    # a busy shop floor. Ignored when replicate_api_token is set.
+    tryon_use_free_space: bool = True
+    # Optional: a free HF account token raises the shared-queue rate limit.
+    hf_token: str = ""
 
     # DEMO / STORE-SPECIFIC: force every scan into one department. "female"
     # = the mirror only ever recommends women's (and unisex) items and the
