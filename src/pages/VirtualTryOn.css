@@ -760,3 +760,19 @@
     font-size: 0.85rem;
   }
 }
+
+/* Why the shutter did nothing, said where the customer is already looking. */
+.tryon-shutter-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: 34ch;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: rgba(10, 10, 26, 0.9);
+  color: #e8e9f5;
+  font-size: 1rem;
+  text-align: center;
+}

@@ -10,6 +10,7 @@ Disabled cleanly when REPLICATE_API_TOKEN isn't set, so the app works
 without it.
 """
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.db.supabase_client import get_supabase
 from app.services.fashion.photoreal_tryon import generate_tryon, is_available, model_category, readiness
@@ -65,8 +66,13 @@ async def tryon_generate(
     if not item.get("image_url"):
         raise HTTPException(status_code=400, detail="that item has no photo to try on")
 
-    result = generate_tryon(photo_bytes, item["image_url"],
-                            category=category, description=item.get("name") or "")
+    # Off the event loop. generate_tryon() blocks for the whole generation --
+    # up to 60s on the free shared GPU -- and this handler is async, so
+    # calling it directly froze the ENTIRE backend for that time: no chat, no
+    # scan, no presence, and no way to serve our own garment image either.
+    result = await run_in_threadpool(
+        generate_tryon, photo_bytes, item["image_url"],
+        category=category, description=item.get("name") or "")
     if "error" in result:
         # 502: the upstream model failed, not the customer's request. The UI
         # falls back to the live overlay.

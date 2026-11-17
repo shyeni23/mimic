@@ -20,6 +20,7 @@ paths handle missing credentials.
 """
 import base64
 import time
+from pathlib import Path
 
 import httpx
 
@@ -83,6 +84,24 @@ def readiness() -> dict:
     return {"state": "off", "backend": "none"}
 
 
+# Product photos are served by this same process from data/product_images
+# (see main.py's /media/products mount), so a URL pointing there is really a
+# local file. Returns the path for our own media URLs, None for anything
+# genuinely remote.
+_MEDIA_PREFIX = "/media/products/"
+_PRODUCT_IMAGES_DIR = Path(__file__).resolve().parents[3] / "data" / "product_images"
+
+
+def _local_media_path(url: str) -> "Path | None":
+    marker = url.find(_MEDIA_PREFIX)
+    if marker == -1:
+        return None
+    name = url[marker + len(_MEDIA_PREFIX):].split("?", 1)[0].split("#", 1)[0]
+    if not name or "/" in name or "\\" in name or name.startswith("."):
+        return None
+    return _PRODUCT_IMAGES_DIR / name
+
+
 def _generate_huggingface(person_jpeg: bytes, garment_url: str, description: str) -> dict:
     """Free Hugging Face Space. Slower and queue-dependent, same model."""
     import tempfile
@@ -98,19 +117,29 @@ def _generate_huggingface(person_jpeg: bytes, garment_url: str, description: str
         person_path = tmpdir / "person.jpg"
         person_path.write_bytes(person_jpeg)
 
-        # The garment must be UPLOADED, not linked. Product images are served
-        # from this machine (http://localhost:8000/media/...), which a remote
-        # Space cannot fetch -- it failed with a bare upstream exception that
-        # looked exactly like a quota refusal. Fetch it here and send the
-        # bytes.
+        # The garment must be UPLOADED, not linked: a remote Space cannot
+        # fetch http://localhost:8000/media/..., and that failure surfaced as
+        # a bare upstream exception that looked exactly like a quota refusal.
+        #
+        # Resolve it from DISK, not over HTTP. Fetching our own URL deadlocked
+        # the server: this runs inside an async request handler, so a blocking
+        # self-request waits on an event loop that is blocked waiting on it,
+        # and died at the 30s timeout as "could not read the garment image:
+        # timed out". Local files are the common case and need no socket.
         garment_path = tmpdir / "garment.jpg"
-        try:
-            with httpx.Client(timeout=30, follow_redirects=True) as c:
-                resp = c.get(garment_url)
-                resp.raise_for_status()
-                garment_path.write_bytes(resp.content)
-        except Exception as e:
-            return {"error": f"could not read the garment image: {e}"}
+        local = _local_media_path(garment_url)
+        if local is not None:
+            if not local.exists():
+                return {"error": f"the garment image is missing from disk ({local.name})"}
+            garment_path.write_bytes(local.read_bytes())
+        else:
+            try:
+                with httpx.Client(timeout=30, follow_redirects=True) as c:
+                    resp = c.get(garment_url)
+                    resp.raise_for_status()
+                    garment_path.write_bytes(resp.content)
+            except Exception as e:
+                return {"error": f"could not read the garment image: {e}"}
 
         client = Client(HF_SPACE, token=settings.hf_token or None)
         result = client.predict(

@@ -21,10 +21,19 @@
   background: rgba(5, 5, 20, 0.65);
   font-size: 1rem;
 }
+/* A failed overlay is NOT a failed page: the camera still shows the customer
+   and "See it properly on me" still generates. Washing the whole mirror red
+   hid the person behind an error about a feature they can do without, so
+   this sits as a banner at the foot of the mirror and leaves the view. */
 .tryon-overlay-msg.tryon-error {
-  background: rgba(80, 15, 25, 0.75);
+  inset: auto 0 0 0;
+  display: block;
+  padding: 12px 18px;
+  background: rgba(80, 15, 25, 0.88);
   color: #ffe4e8;
+  font-size: .95rem;
   font-weight: 500;
+  line-height: 1.4;
 }
 
 /* Positioning guidance ("step back so I can see your hips"). Sits low so it

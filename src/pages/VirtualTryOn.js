@@ -40,7 +40,7 @@ const CURRENT_OUTFIT_ITEMS = [
 ];
 
 export default function VirtualTryOn() {
-  const { sessionId, tryonItem } = useSession();
+  const { sessionId, tryonItem, fireAgentEvent } = useSession();
   // "Items being tried on": the real item resolved from the voice command,
   // otherwise the mock outfit (so this page still renders for a walk-up demo).
   const liveItems = tryonItem
@@ -62,6 +62,8 @@ export default function VirtualTryOn() {
   const [showFlash, setShowFlash] = useState(false);
   // Live frame source for photorealistic try-on.
   const mirrorVideoRef = useRef(null);
+  const photorealRef = useRef(null);
+  const [shutterHint, setShutterHint] = useState('');
 
   const handleCapture = () => {
     setShowFlash(true);
@@ -80,6 +82,24 @@ export default function VirtualTryOn() {
         lighting: lightingMode,
       });
     }, 300);
+  };
+
+  /* The shutter is the button people actually press. It used to run the mock
+     above -- a flash and a "Photo Captured" card with no photo in it, which
+     reads as the page being broken. When photorealistic try-on is configured
+     and a garment is selected, the shutter now runs that instead. */
+  const handleShutter = () => {
+    if (photorealRef.current?.ready) {
+      photorealRef.current.start();
+      return;
+    }
+    // Falling through to handleCapture() here is what made the shutter feel
+    // dead: with no garment chosen the mock flashes and files a placeholder
+    // card, so the press looks ignored. Say what is actually missing.
+    setShutterHint(tryonItem
+      ? 'Try-on is still starting up — give it a moment and press again.'
+      : 'Pick something first: go to Recommendations and tap "Try It On".');
+    setTimeout(() => setShutterHint(''), 5000);
   };
 
   const handleDismissCapture = () => {
@@ -154,6 +174,10 @@ export default function VirtualTryOn() {
                     <p className="camera-text">Say "try this on" from Recommendations or Shopping</p>
                     <p className="camera-subtext">The garment will overlay on you here</p>
                   </div>
+                )}
+
+                {shutterHint && (
+                  <div className="tryon-shutter-hint">{shutterHint}</div>
                 )}
 
                 {/* Zoom Indicator */}
@@ -287,10 +311,10 @@ export default function VirtualTryOn() {
 
                     <motion.button
                       className="capture-btn"
-                      onClick={handleCapture}
+                      onClick={handleShutter}
                       whileHover={{ scale: 1.08 }}
                       whileTap={{ scale: 0.92 }}
-                      title="Capture Photo"
+                      title={tryonItem ? 'See it properly on you' : 'Capture Photo'}
                     >
                       <span className="capture-btn-inner">
                         <RiCameraLine />
@@ -319,9 +343,18 @@ export default function VirtualTryOn() {
             {/* The live mirror shows colour and proportion instantly; this
                 generates the customer actually WEARING it, with real drape.
                 Hidden entirely when the backend has no try-on token. */}
-            {tryonItem && (
-              <PhotorealTryOn item={tryonItem} videoEl={mirrorVideoRef} sessionId={sessionId} />
-            )}
+            <PhotorealTryOn
+              ref={photorealRef}
+              item={tryonItem}
+              videoEl={mirrorVideoRef}
+              sessionId={sessionId}
+              onTryonStart={(it) => fireAgentEvent?.('tryon_started', 'customer', {
+                name: it?.name, category: it?.category,
+              })}
+              onTryonResult={(it) => fireAgentEvent?.('tryon_ready', 'customer', {
+                name: it?.name, category: it?.category,
+              })}
+            />
 
             <div className="tryon-items-list">
               {liveItems.map((item, index) => (

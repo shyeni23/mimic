@@ -84,6 +84,23 @@ EVENT_TRIGGERS = {
         "conversation history shows a goal they had (occasion, style), gently remind "
         "them where you left off. Keep it short."
     ),
+    # Formatted with the garment's name (see routers/agent_events.py).
+    "tryon_started": (
+        "[SYSTEM EVENT -- not something the customer said] A photorealistic try-on of "
+        "{item_name} is now being generated for the customer -- it takes a few seconds. "
+        "React like a stylist about to reveal a look: one short, warm line that builds a "
+        "little anticipation ('give me a sec, let's see this on you...'). Do NOT call any "
+        "tool. Do NOT describe the garment in detail yet -- the image isn't ready."
+    ),
+    # Formatted with the garment's name (see routers/agent_events.py).
+    "tryon_ready": (
+        "[SYSTEM EVENT -- not something the customer said] The photorealistic try-on of "
+        "{item_name} just appeared on screen -- the customer is now looking at themselves "
+        "wearing it. React like a stylist seeing the result: ONE genuine, specific line "
+        "about how it looks on them (the fit, the colour, how it suits them) and, if it "
+        "feels natural, a light nudge on what to do next (add it, or try another). Warm "
+        "and brief, never salesy, never a checklist. Do NOT call any tool."
+    ),
 }
 
 # Which events are safe to fire for which role -- keeps proactive behavior
@@ -92,6 +109,7 @@ ALLOWED_EVENTS_BY_ROLE = {
     "customer": {
         "conversation_start", "scan_complete", "item_liked", "recommendations_idle",
         "item_focused_long", "cart_item_added", "skipped_multiple", "long_pause",
+        "tryon_started", "tryon_ready",
     },
     "admin": set(),  # no proactive admin events defined yet
 }
@@ -110,4 +128,7 @@ def get_trigger_message(event: str, role: str, context: dict | None = None) -> s
             item_name=ctx.get("name") or "an item",
             item_category=ctx.get("category") or "item",
         )
+    elif message and event in ("tryon_started", "tryon_ready"):
+        ctx = context or {}
+        message = message.format(item_name=ctx.get("name") or "this piece")
     return message

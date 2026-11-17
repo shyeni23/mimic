@@ -28,9 +28,11 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 // the failure counter never advanced, and the mirror sat on "Getting the
 // mirror ready..." indefinitely. Observed live for over a minute.
 const SEND_TIMEOUT_MS = 20000;
-// The whole warm-up: model download plus first inference. Past this,
-// something is wrong that waiting will not fix (slow or blocked CDN).
-const WARMUP_TIMEOUT_MS = 45000;
+// The whole warm-up: model download plus wasm compile plus first inference.
+// 45s was too tight on a busy CPU -- it fired while the model was still
+// legitimately initialising and told the customer to check their internet,
+// which was never the real cause. The download is ~2s; the rest is CPU.
+const WARMUP_TIMEOUT_MS = 90000;
 
 // MediaPipe Pose landmark indices (same ones body_shape.py uses).
 const L_SHOULDER = 11;
@@ -134,7 +136,15 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
           locateFile: (f) => `${MEDIAPIPE_CDN}/${f}`,
         });
         pose.setOptions({
-          modelComplexity: 1, smoothLandmarks: true, enableSegmentation: false,
+          // 0 = "lite" (2.8MB) instead of 1 = "full" (6.4MB). The cost that
+          // actually matters is not the download -- the CDN serves all four
+          // assets in under 2s on a normal line -- it is compiling 6MB of
+          // wasm and running the first inference, both on the main thread,
+          // while the camera, the mic and a photoreal generation are already
+          // competing for it. Lite warms up several times faster. For
+          // positioning a garment from shoulder and hip points, the extra
+          // precision of the full model was never visible anyway.
+          modelComplexity: 0, smoothLandmarks: true, enableSegmentation: false,
           minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
         });
         pose.onResults(onPoseResults);
@@ -151,8 +161,12 @@ export default function TryOnMirror({ item, lighting = 'natural', zoom = 1, flip
           if (statusRef.current === 'warming') {
             stoppedRef.current = true;
             statusRef.current = 'error';
-            setErrorMessage('The body-tracking model is taking too long to load. '
-              + 'Check the internet connection and reload the page.');
+            // Deliberately does NOT blame the network. Measured: the CDN
+            // serves every asset in under 2s. Reaching here means the CPU
+            // could not finish initialising the model, so say that.
+            setErrorMessage('The live body-tracking overlay could not start on this '
+              + 'machine — it needs more CPU than is free right now. '
+              + '"See it properly on me" still works.');
             setStatus('error');
           }
         }, WARMUP_TIMEOUT_MS);
