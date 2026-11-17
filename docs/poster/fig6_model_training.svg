@@ -1,0 +1,29 @@
+<svg width="680" height="380" viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Pretrained models versus models trained in-house</title>
+<desc>Five pretrained models used as-is: DeepFace, FaceNet, MediaPipe, FashionCLIP, IDM-VTON. Three models trained for this project: Stage B rule weights, two-tower network, voice-intent matcher.</desc>
+<rect width="680" height="380" fill="#ffffff"/>
+
+<rect x="40" y="40" width="290" height="300" rx="16" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="65" y="68" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#04342C">Pretrained models</text>
+<text x="65" y="85" font-family="Arial, sans-serif" font-size="12" fill="#085041">used as-is</text>
+<rect x="60" y="100" width="250" height="36" rx="18" fill="#9FE1CB"/>
+<text x="185" y="123" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#04342C">DeepFace</text>
+<rect x="60" y="144" width="250" height="36" rx="18" fill="#9FE1CB"/>
+<text x="185" y="167" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#04342C">FaceNet</text>
+<rect x="60" y="188" width="250" height="36" rx="18" fill="#9FE1CB"/>
+<text x="185" y="211" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#04342C">MediaPipe</text>
+<rect x="60" y="232" width="250" height="36" rx="18" fill="#9FE1CB"/>
+<text x="185" y="255" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#04342C">FashionCLIP</text>
+<rect x="60" y="276" width="250" height="36" rx="18" fill="#9FE1CB"/>
+<text x="185" y="299" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#04342C">IDM-VTON</text>
+
+<rect x="350" y="40" width="290" height="300" rx="16" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="375" y="68" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#4A1B0C">Trained in-house</text>
+<text x="375" y="85" font-family="Arial, sans-serif" font-size="12" fill="#712B13">built for this project</text>
+<rect x="370" y="105" width="250" height="50" rx="12" fill="#F0997B"/>
+<text x="495" y="134" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#4A1B0C">Stage B rule weights</text>
+<rect x="370" y="175" width="250" height="50" rx="12" fill="#F0997B"/>
+<text x="495" y="204" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#4A1B0C">Two-tower network</text>
+<rect x="370" y="245" width="250" height="50" rx="12" fill="#F0997B"/>
+<text x="495" y="274" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#4A1B0C">Voice-intent matcher</text>
+</svg>

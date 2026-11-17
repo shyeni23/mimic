@@ -1,0 +1,29 @@
+<svg width="680" height="308" viewBox="0 0 680 308" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>System architecture, five modules</title>
+<desc>An outer container labeled AI smart mirror holds five modules: body and face scan, conversational AI, recommendations, weather-aware styling, and staff escalation with try-on.</desc>
+<rect width="680" height="308" fill="#ffffff"/>
+
+<rect x="30" y="40" width="620" height="228" rx="20" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
+<text x="55" y="65" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#173404">AI smart mirror</text>
+<text x="55" y="82" font-family="Arial, sans-serif" font-size="12" fill="#27500A">Five integrated modules</text>
+
+<rect x="50" y="95" width="180" height="64" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="140" y="117" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#04342C">Body &amp; face scan</text>
+<text x="140" y="139" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#085041">MediaPipe, DeepFace</text>
+
+<rect x="250" y="95" width="180" height="64" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="340" y="117" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#26215C">Conversational AI</text>
+<text x="340" y="139" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#3C3489">Groq + voice rules</text>
+
+<rect x="450" y="95" width="180" height="64" rx="12" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="540" y="117" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#4A1B0C">Recommendations</text>
+<text x="540" y="139" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#712B13">FashionCLIP, ranking</text>
+
+<rect x="50" y="184" width="280" height="64" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="190" y="206" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#2C2C2A">Weather-aware styling</text>
+<text x="190" y="228" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#444441">OpenWeatherMap, live</text>
+
+<rect x="350" y="184" width="280" height="64" rx="12" fill="#FBEAF0" stroke="#993556" stroke-width="0.5"/>
+<text x="490" y="206" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#4B1528">Staff escalation &amp; try-on</text>
+<text x="490" y="228" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#72243E">IDM-VTON diffusion model</text>
+</svg>
