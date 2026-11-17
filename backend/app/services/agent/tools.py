@@ -686,7 +686,7 @@ def screen_action(session_id: str, action: str, params: str = "{}") -> str:
     send_to_fitting_room; rate_item {"item_id","stars":1-5} or {"item_id","thumb":"up|down"};
     set_category_filter {"category":"all|top|bottom|dress|footwear|bag|watch|jewelry|accessory"};
     set_occasion_filter {"occasion":"all|casual|ethnic|formal|office|party|wedding|..."};
-    set_department {"department":"men|women"}; clear_filters; search {"query"}; clear_search;
+    set_department {"department":"men|women|kids|adult"}; clear_filters; search {"query"}; clear_search;
     load_more; set_lighting {"mode":"natural|studio|warm|cool"}; flip_camera; capture_photo;
     retake_photo; dismiss_photo; set_tryon_zoom {"direction":"in|out"}.
     Item ids must come from the ON SCREEN / CART lists. remove_from_cart, clear_cart and

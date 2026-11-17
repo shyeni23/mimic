@@ -191,8 +191,11 @@ def confirm_gender(req: ScanGenderRequest):
         # Locked by config -- acknowledge without changing anything.
         return {"session_id": req.session_id, "gender": forced_gender(), "source": "forced", "locked": True}
     gender = normalize_gender(req.gender) or "unknown"
-    if gender not in ("male", "female", "unknown"):
-        raise HTTPException(status_code=400, detail="gender must be male, female or unknown")
+    # "kids" is a SHOPPER CHOICE, never a scan result: the customer taps it
+    # because they are buying for a child. Nothing in the scan can set it.
+    if gender not in ("male", "female", "kids", "unknown"):
+        raise HTTPException(status_code=400,
+                            detail="gender must be male, female, kids or unknown")
     updated = update_scan_gender(req.session_id, gender)
     if not updated:
         raise HTTPException(status_code=404, detail="No scan found for this session. Call /api/vision/scan first.")

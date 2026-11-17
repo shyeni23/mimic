@@ -99,6 +99,185 @@ def _cart_item(text: str, state: dict) -> dict | None:
 
 # ---------------------------------------------------------------- results
 
+# ---------------------------------------------------------------- who for?
+# Deciding whether to show CHILDREN'S clothing. Tuned against
+# docs/dataset/kids_range_phrases.json (404 labelled utterances, ~37% of
+# them negatives); backend/tests/test_kids_range_phrases.py keeps it honest.
+#
+# Speech arrives via Whisper pinned to English (config.whisper_language), so
+# Hindi is romanized -- "meri beti saat saal ki hai", never Devanagari.
+
+# Ages are spoken as digits AND as words, in both languages. Hindi numerals
+# only ever appear next to "saal", which is what disambiguates the nasty one:
+# Hindi "teen" is 3, English "teen" is a teenager.
+# NOTE: deliberately NOT _NUM_WORDS -- this module already defines one
+# further down for item ordinals, and the later definition silently won
+# the name, leaving age parsing with only one..five.
+_AGE_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+    "twenty one": 21, "twenty two": 22, "twenty three": 23, "twenty four": 24,
+    "twenty five": 25, "twenty six": 26, "twenty seven": 27, "twenty eight": 28,
+    "twenty nine": 29, "forty five": 45, "thirty five": 35,
+    # Romanized Hindi.
+    "ek": 1, "do": 2, "teen": 3, "chaar": 4, "char": 4, "paanch": 5, "panch": 5,
+    "chhe": 6, "che": 6, "chah": 6, "saat": 7, "aath": 8, "ath": 8, "nau": 9,
+    "das": 10, "gyarah": 11, "barah": 12, "terah": 13, "chaudah": 14,
+    "pandrah": 15, "solah": 16, "satrah": 17, "athara": 18, "atharah": 18,
+    "unnees": 19, "bees": 20, "pachees": 25, "tees": 30, "pachas": 50,
+    "saath": 60,
+    # Whisper mishears "eight" as "ate" on Indian accents often enough to
+    # be worth a line; it only ever resolves next to "year old".
+    "ate": 8,
+}
+_NUM_ALT = "|".join(sorted(_AGE_WORDS, key=len, reverse=True))
+_NUM = r"(\d{1,2}|" + _NUM_ALT + r")"
+
+# Each pattern is a way a person actually states an age out loud.
+_AGE_RES = [re.compile(x) for x in (
+    rf"\b{_NUM}[\s-]*(?:year|yr)s?[\s-]*old\b",
+    rf"\b{_NUM}\s+(?:saal|years?|yrs?)\b",
+    rf"\b(?:age|umar)\s*(?:is|hai)?\s*{_NUM}\b",
+    rf"\b(?:is|are|hai|hain|turns|turning|turned|will be|he'?s|she'?s|aged)\s+"
+    rf"(?:just\s+|around\s+|about\s+|like\s+|only\s+)?{_NUM}\b",
+    # "beta 18 ka hai" -- Hindi puts the verb after the number.
+    rf"\b{_NUM}\s+(?:saal\s+)?(?:ka|ki|ke)\s+(?:hai|hain|ho gaya|ho gayi)\b",
+    rf"\bi have a\s+{_NUM}\b",
+    rf"\bmy\s+{_NUM}\s*(?:year|yr)",
+)]
+
+
+# Index 3 is the loose "is <number>" form, which could just as easily be a
+# price or a size. Every other pattern names a unit ("year old", "saal") and
+# can therefore be trusted even with no person mentioned.
+_LOOSE_AGE_IDX = 3
+
+
+def _stated_age(t: str):
+    """(age, explicit) -- the age the customer said and whether it came from
+    an unambiguous age construction. Digits and number words, English and
+    romanized Hindi."""
+    for i, rx in enumerate(_AGE_RES):
+        m = rx.search(t)
+        if m:
+            tok = m.group(1)
+            val = int(tok) if tok.isdigit() else _AGE_WORDS.get(tok)
+            if val is not None:
+                return val, i != _LOOSE_AGE_IDX
+    return None, False
+
+
+# Unambiguously a child. Note what is NOT here: "baby" and "girl"/"boy" on
+# their own, because "baby pink saree", "girls night out" and "boyfriend
+# jeans" are ordinary adult clothing language and were the single biggest
+# source of false positives.
+_CHILD_RE = re.compile(
+    r"\b(kids?|kid'?s|child|children|childrens?|toddlers?|todler|infants?|"
+    r"newborns?|new born|preschool\w*|kindergarten|nursery|rompers?|onesies?|"
+    r"kiddo|bacha|bache|bachi|bachon|baccha|bacche|bacchi|bacchon|bachcha|"
+    r"bachche|bachchi|bachchon|bachha|bachhe|nanhe|munne|little one|"
+    r"small one|little kid|primary school|school uniform)\b")
+# Safe on their own -- these words are not used for garments or styles.
+_REL_STRONG = r"son|daughter|nephew|niece|grandson|granddaughter|twins"
+# NOT safe alone: "girls night out dress", "bad boy graphic tee", "girl
+# boss tshirt", "a boys trip to goa" are all adult clothing language.
+# These need a possessive in front of them to count as a person.
+_REL_WEAK = (r"boy|girl|mother|father|mom|mum|mummy|papa|dad|daddy|wife|"
+             r"husband|bhai|behen|sun|betty|knees")
+_REL_EN = _REL_STRONG + r"|" + _REL_WEAK
+_REL_HI = (r"beta|beti|bete|ladka|ladke|ladki|bhatija|bhatije|bhatiji|bhanja|"
+           r"bhanje|bhanji|pota|pote|poti|nawasa|nawase|nawasi|bhatija")
+_REL_RE = re.compile(rf"\b({_REL_EN}|{_REL_HI})\b")
+# "my little grandson", "mere chhote bete" -- a size word next to a relative
+# is the customer telling us it IS a child.
+_LITTLE_REL = re.compile(
+    rf"\b(little|small|tiny|chhota|chhote|chhoti|chota|choti)\s+\w*\s*"
+    rf"({_REL_EN}|{_REL_HI})\b|"
+    rf"\b({_REL_HI})\s+\w*\s*(chhota|chhoti|choti|chota)\b")
+# "baby" only counts when it is plainly a person, not a colour or a style.
+_BABY_RE = re.compile(r"\b(baby|baby boy|baby girl)\b")
+_BABY_NOT = re.compile(
+    r"\bbaby\s+(pink|blue|cord|doll|alpaca|shower)\b|\bbabydoll\b|"
+    # "baby, come see this" -- a term of endearment, not a child.
+    r"\bbaby\s+(come|ye|yeh|dekho|look|see|this|that)\b")
+# "kid leather" is a MATERIAL and "child of god"/"kid print" are print names.
+_CHILD_NOT = re.compile(
+    r"\bkid\s+(leather|print|skin)\b|\bchild\s+of\s+god\b|"
+    r"\bchild\s+print\b|\bkiddish\b|\bchildish\b")
+
+# Romanized Hindi kinship words double as terms of address -- "beta, trial
+# room kahan hai?" is a customer talking to staff, not shopping for a child.
+# They only count with a possessive or a "ke liye" attached, or an age.
+_HI_REL_ANCHOR = re.compile(rf"\b(mera|meri|mere|apne|apni|humara|hamara)\b|"
+                            rf"\b({_REL_HI})\s+\w*\s*ke liye\b|\b({_REL_HI}) ke liye\b")
+
+# "<relative>'s wedding" is an ADULT relative, and the customer is dressing
+# THEMSELVES for it. This is the trap the whole rule exists to avoid.
+_EVENT_RE = re.compile(
+    rf"\b({_REL_EN}|{_REL_HI}|daughter in law|son in law)\b"
+    rf"(?:'s|s'| ki| ka| ke| in law'?s)?\s*"
+    rf"(wedding|shaadi|shadi|engagement|marriage|reception|baby shower)\b")
+_MARRYING_RE = re.compile(r"\b(getting married|shaadi hai|engagement hai|shaadi ke liye)\b")
+# A relative mentioned in passing, not shopped for.
+_NOT_SHOPPING_CTX = re.compile(
+    r"\b(waiting|wait|running|recommended|bought|outside|with my|"
+    r"ne recommend|bahar|kar rahe)\b")
+_SHOP_INTENT = re.compile(
+    r"\b(for|buy|buying|shop|shopping|looking|need|needs|want|wanting|gift|"
+    r"suggest|show|dikhao|chahiye|lena|dekh|liye|size|wear|wears|fit|"
+    r"like|likes|love|loves|suit|suits|asked|pick|function|attend|"
+    r"pasand|lagega|aayega)\b")
+
+
+# Checked before anything else: "umm not for my kid, for me" mentions a
+# child but is the customer claiming the clothes for themselves.
+_SELF_RE = re.compile(
+    r"\b(for (me|myself)|for my self|my own|i'?m the one|me who needs|"
+    r"treating myself|mere liye|apne liye|khud ke liye|main khud|"
+    r"mere apne|myself)\b")
+
+
+def _who_for(t: str):
+    """(target, age) where target is 'kids' | 'adult' | 'ask' | None.
+
+    None means "not about who we're shopping for" -- leave the message to
+    the other rules and the LLM.
+    """
+    if _SELF_RE.search(t):
+        return None, None                      # "it's not for my son, it's for me"
+    age, explicit_age = _stated_age(t)
+    # "my daughter's wedding" is the customer dressing THEMSELVES. But "my
+    # niece is 26 and getting married" states an age, so it is about her.
+    if _EVENT_RE.search(t) or (_MARRYING_RE.search(t) and age is None):
+        return None, None
+    baby = _BABY_RE.search(t) and not _BABY_NOT.search(t)
+    child = (bool(_CHILD_RE.search(t)) or bool(baby)) and not _CHILD_NOT.search(t)
+    child = child or bool(_LITTLE_REL.search(t))
+    strong = bool(re.search(rf"\b({_REL_STRONG})\b", t))
+    weak = bool(re.search(rf"\b(my|mere|meri|mera|apne|apni|the)\s+({_REL_WEAK})s?\b", t))
+    hindi = bool(re.search(rf"\b({_REL_HI})\b", t)) and (
+        bool(_HI_REL_ANCHOR.search(t)) or age is not None)
+    rel = strong or weak or hindi
+    if not (child or rel):
+        if age is not None and explicit_age:
+            return ("adult" if age >= 15 else "kids"), age
+        return None, None
+    if _NOT_SHOPPING_CTX.search(t):
+        return None, None                      # "my daughter is waiting outside"
+    # An age is only ever stated here in answer to "how old are they?", so it
+    # decides on its own -- "my granddaughter is two" needs no shopping verb.
+    if age is not None:
+        return ("adult" if age >= 15 else "kids"), age
+    if child:
+        return "kids", None
+    if not _SHOP_INTENT.search(t):
+        return None, None
+    return "ask", None
+
+
 def _turn(reply: str, actions: list[tuple[str, dict]], prefs: dict) -> dict:
     start_turn()
     for a_type, payload in actions:
@@ -403,12 +582,49 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
     # --- filters & search
     if re.search(r"\b(clear|remove|reset)( all)?( the)? filters?\b|\bfilter hata", t):
         return _turn("Filters cleared, showing everything.", [("clear_filters", {"scope": "all"})], prefs)
-    if re.search(r"\b(men'?s|mens|gents|male)\b.*\b(range|section|side|collection|department)\b|\bswitch to men\b", t):
+    # --- who are we shopping for?
+    # This mirror is TOUCHLESS: the Range chip is a staff fallback, so the
+    # only route a customer has to the kids range is saying so. Children's
+    # clothing is otherwise filtered out of every result
+    # (catalog_filters.passes_sanity_check), and nothing in the scan can
+    # unlock it -- guessing a shopper's age from the camera would be wrong
+    # in both directions. See _who_for() above for the matching itself.
+    target, said_age = _who_for(t)
+    if target == "ask":
+        return _turn("Happy to help with that. How old are they?", [], prefs)
+    if target == "kids":
+        nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
+        said = f" for a {said_age}-year-old" if said_age is not None else ""
+        return _turn(f"Switching to our kids range{said}.",
+                     nav + [("set_department", {"department": "kids"})], prefs)
+    if target == "adult":
+        nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
+        dept = ("women" if re.search(r"\b(daughter|girl|niece|granddaughter|beti|ladki|"
+                                     r"bhatiji|bhanji|poti|nawasi|mummy)\b", t) else "men")
+        return _turn(f"{said_age} -- that's our grown-up range. Showing it now.",
+                     nav + [("set_department", {"department": dept})], prefs)
+
+    # Back to adult wear -- "actually it's for me".
+    if _SELF_RE.search(t):
+        nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
+        return _turn("Got it, back to your own range.",
+                     nav + [("set_department", {"department": "adult"})], prefs)
+
+    if re.search(r"\b(men'?s|mens|man'?s|mans|gents|jents|male)\b.*"
+                 r"\b(range|section|side|collection|department|wear|clothing|clothes)\b"
+                 r"|\bswitch to men'?s?\b|\bmenswear\b", t):
         nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
         return _turn("Showing the men's range.", nav + [("set_department", {"department": "men"})], prefs)
-    if re.search(r"\b(women'?s|womens|ladies|female)\b.*\b(range|section|side|collection|department)\b|\bswitch to women\b", t):
+    if re.search(r"\b(women'?s|womens|ladies|lady'?s|female)\b.*"
+                 r"\b(range|section|side|collection|department|wear|clothing|clothes)\b"
+                 r"|\bswitch to women'?s?\b|\bwomenswear\b", t):
         nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
         return _turn("Showing the women's range.", nav + [("set_department", {"department": "women"})], prefs)
+    if re.search(r"\b(kid'?s?|kids|children'?s?|childrens)\b.*"
+                 r"\b(range|section|side|collection|department|wear|clothes|clothing)\b"
+                 r"|\bswitch to kids\b|\bkidswear\b", t):
+        nav = [] if page == "recommendations" else [("navigate", {"page": "recommendations"})]
+        return _turn("Showing the kids range.", nav + [("set_department", {"department": "kids"})], prefs)
     if re.search(r"\b(filter|tab|chip|category)\b", t):
         target_page = page if page in ("shopping", "recommendations") else "shopping"
         nav = [("navigate", {"page": target_page})] if page != target_page else []
@@ -477,6 +693,19 @@ def ui_command_turn(text: str, prior_preferences: dict, client_state: dict | Non
         if item:
             return _turn(f"Opening the mirror -- stand in front of me and I'll overlay the {item.get('name')}.",
                          [("start_tryon", {"item_id": item["id"], "item": item})], prefs)
+
+    # "I'm done" while picking pieces (on Recommendations or anywhere else) ->
+    # take her to see them assembled. Deliberately NOT gated to any one page:
+    # the whole point is she says this right after tapping "Add to Outfit" a
+    # few times on Recommendations, not after already navigating away.
+    # Scoped to phrasing that's unambiguously about finishing a LOOK, not a
+    # bare "I'm done" (too easily meant for something else entirely mid-
+    # conversation) -- requires "look"/"outfit"/"picking"/"adding" alongside
+    # the completion word.
+    if re.search(r"\b(i'?m|that'?s it,? )?(done|finished)\b.*\b(picking|adding|choosing|selecting|look|outfit)\b"
+                 r"|\b(show|see) (me )?(the )?(final|complete|whole|full) (look|outfit)\b"
+                 r"|\bthat'?s my (outfit|final look|look)\b", t):
+        return _turn("Let's see it all together.", [("navigate", {"page": "outfit_builder"})], prefs)
 
     # --- outfit builder (page: /outfit-builder)
     if page == "outfit-builder" or re.search(r"\b(outfit( builder)?|look)\b", t):

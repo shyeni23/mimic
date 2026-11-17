@@ -65,13 +65,33 @@ _MALE_RE = re.compile(r"\b(men|men's|mens|man|gents|male)\b")
 _UNISEX_RE = re.compile(r"\b(unisex)\b")
 
 
-def passes_sanity_check(item: dict) -> bool:
+def is_kids_item(item: dict) -> bool:
+    """True for children's clothing.
+
+    Checks the NAME as well as the gender column, because they disagree: the
+    backfill tagged "Gini and Jony Girls White Dress" as female, so the
+    column alone misses most of the 1,909 kids rows in this catalog. The
+    name is the reliable signal here.
+    """
+    if normalize_gender(item.get("gender")) == "kids":
+        return True
+    return bool(_KIDS_RE.search((item.get("name") or "").lower()))
+
+
+def passes_sanity_check(item: dict, allow_kids: bool = False) -> bool:
     """Reject forbidden (innerwear/swim/sleep) and kids items from ever
-    surfacing as a recommendation."""
+    surfacing as a recommendation.
+
+    allow_kids is opt-in and defaults to False, so every existing caller
+    keeps blocking children's clothing exactly as before. It is set only
+    when the SHOPPER has explicitly chosen the kids range -- never inferred
+    from a scan, because nothing about the camera should decide that.
+    Innerwear and swimwear stay blocked either way.
+    """
     name = (item.get("name") or "").lower()
     if _FORBIDDEN_RE.search(name):
         return False
-    if _KIDS_RE.search(name):
+    if not allow_kids and is_kids_item(item):
         return False
     return True
 
@@ -132,15 +152,24 @@ def matches_gender(item: dict, gender: str | None) -> bool:
     Jeans" than the wrong department, and dropping it would just thin the
     pool. Only the OPPOSITE gender (and kids) is rejected.
     """
-    ig = item_gender(item)
-    if ig == "kids":
-        return False
     want = normalize_gender(gender)
+    if want == "kids":
+        # Strict: a kids request returns ONLY items positively identified as
+        # children's. "unknown" rows are allowed into an adult range below
+        # because an unclassifiable row is usually plain adult clothing --
+        # that same reasoning makes them the wrong thing to put in front of
+        # someone shopping for a child, so they are excluded here.
+        return is_kids_item(item)
+    if is_kids_item(item):
+        return False
     if want is None or want == "unisex":
         return True
+    ig = item_gender(item)
     return ig in (want, "unisex", "unknown")
 
 
 def apply_catalog_filters(items: list[dict], gender: str | None) -> list[dict]:
     """Sanity + gender filter in one pass, preserving order."""
-    return [it for it in items if passes_sanity_check(it) and matches_gender(it, gender)]
+    allow_kids = normalize_gender(gender) == "kids"
+    return [it for it in items
+            if passes_sanity_check(it, allow_kids=allow_kids) and matches_gender(it, gender)]
