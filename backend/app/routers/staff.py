@@ -1,12 +1,13 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from app.db.supabase_client import (
     get_pending_staff_requests, get_recent_staff_requests, update_staff_request_status,
 )
 from app.models.schemas import StaffRequestStatusUpdate
+from app.services.auth import require_staff
 from app.services.notifications import hub
 
 log = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/api/staff", tags=["staff escalation (Module 5)"])
 
 
 @router.get("/requests")
-def list_staff_requests(status: str = "pending"):
+def list_staff_requests(status: str = "pending", _staff: str = Depends(require_staff)):
     """Closes the audit's own G6 gap ("no confirmed staff/admin UI or
     notification consumer exists") -- this is that consumer's data source.
     status='pending' (default) for the actionable queue; status='all' for a
@@ -32,7 +33,7 @@ def list_staff_requests(status: str = "pending"):
 
 
 @router.post("/requests/{request_id}/status")
-def set_staff_request_status(request_id: str, req: StaffRequestStatusUpdate):
+def set_staff_request_status(request_id: str, req: StaffRequestStatusUpdate, _staff: str = Depends(require_staff)):
     if req.status not in ("pending", "acknowledged", "resolved"):
         raise HTTPException(status_code=400, detail="status must be one of: pending, acknowledged, resolved")
     try:

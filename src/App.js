@@ -24,7 +24,14 @@ import StaffRequests from './pages/StaffRequests';
 import './styles/global.css';
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, checking } = useAuth();
+
+  // A stored token is being verified against the backend (see
+  // AuthContext) -- hold here rather than flash the login screen and then
+  // immediately replace it once verification resolves.
+  if (checking) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (

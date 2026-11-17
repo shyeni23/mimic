@@ -1,26 +1,50 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { RiGoogleFill, RiMailLine, RiLockLine, RiEyeLine, RiEyeOffLine, RiShieldStarLine } from 'react-icons/ri';
+import { RiMailLine, RiLockLine, RiEyeLine, RiEyeOffLine, RiShieldStarLine, RiErrorWarningLine } from 'react-icons/ri';
 import AnimatedButton from '../components/Common/AnimatedButton';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../utils/api';
 import './AdminLogin.css';
 
 export default function AdminLogin() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ username: '', password: '' });
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  // Used to call login() unconditionally on any submit -- no backend check
+  // existed at all, so any text in either field opened the mirror. This now
+  // posts to the real endpoint (backend/app/services/auth.py) and only
+  // proceeds on a genuine 200 with a signed token.
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    login();
-    navigate('/dashboard');
-  };
-
-  const handleGoogleLogin = () => {
-    login();
-    navigate('/dashboard');
+    if (!formData.username.trim() || !formData.password) {
+      setError('Enter both a username and a password.');
+      return;
+    }
+    setError('');
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/staff-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: formData.username.trim(), password: formData.password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.detail || 'Sign-in failed.');
+        return;
+      }
+      login(data.token);
+      navigate('/dashboard');
+    } catch (err) {
+      setError("Couldn't reach the mirror's server -- check it's running.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -70,30 +94,17 @@ export default function AdminLogin() {
           <p>Sign in to power on the Smart Mirror</p>
         </div>
 
-        <motion.button
-          className="google-btn"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleGoogleLogin}
-        >
-          <RiGoogleFill />
-          Continue with Google
-        </motion.button>
-
-        <div className="login-divider">
-          <span>or</span>
-        </div>
-
         <form onSubmit={handleSubmit}>
           <div className="input-group">
-            <label>Email</label>
+            <label>Username</label>
             <div className="input-wrapper">
               <RiMailLine className="input-icon" />
               <input
-                type="email"
-                placeholder="Enter admin email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                type="text"
+                autoComplete="username"
+                placeholder="Staff username"
+                value={formData.username}
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
               />
             </div>
           </div>
@@ -104,7 +115,8 @@ export default function AdminLogin() {
               <RiLockLine className="input-icon" />
               <input
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Enter admin password"
+                autoComplete="current-password"
+                placeholder="Enter staff password"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               />
@@ -118,12 +130,14 @@ export default function AdminLogin() {
             </div>
           </div>
 
-          <div className="login-options">
-            <button type="button" className="forgot-link">Forgot password?</button>
-          </div>
+          {error && (
+            <p className="login-error">
+              <RiErrorWarningLine /> {error}
+            </p>
+          )}
 
-          <AnimatedButton fullWidth size="large" className="submit-btn">
-            Start System
+          <AnimatedButton fullWidth size="large" className="submit-btn" disabled={submitting}>
+            {submitting ? 'Signing in…' : 'Start System'}
           </AnimatedButton>
         </form>
 

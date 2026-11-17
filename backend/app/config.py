@@ -114,6 +114,18 @@ class Settings(BaseSettings):
     # resolves it) is simplest; switch to lat/lon if the city is ambiguous.
     mirror_location: str = "New York,US"
 
+    # ---- Staff authentication ----
+    # "Start Your Shift" used to accept any email/password at all -- the
+    # frontend called login() unconditionally, with no backend check.
+    # A single shared kiosk credential (not per-employee accounts -- that's
+    # what "Start Your Shift" actually means here), set via
+    # scripts/set_staff_password.py, which prints the exact lines to paste
+    # below. Empty hash = the login endpoint refuses with a clear 503
+    # instead of silently accepting anything.
+    staff_username: str = "staff"
+    staff_password_hash: str = ""
+    staff_login_secret: str = ""
+
     # App
     app_env: str = "development"
     cors_origins: str = "http://localhost:3000"

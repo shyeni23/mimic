@@ -43,12 +43,23 @@ async function readErrorDetail(res) {
   return text || res.statusText || `Request failed (${res.status})`;
 }
 
+// Attached to every request automatically when present -- covers the
+// staff-only endpoints (see backend/app/services/auth.py's require_staff)
+// without every call site needing to know about auth. Harmless on public
+// endpoints: the backend only checks this header on the routes that
+// actually require it.
+function authHeader() {
+  const token = localStorage.getItem('mirrorai-staff-token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function apiPost(path, body, isFormData = false) {
   const opts = { method: 'POST' };
   if (isFormData) {
     opts.body = body;
+    opts.headers = { ...authHeader() };
   } else {
-    opts.headers = { 'Content-Type': 'application/json' };
+    opts.headers = { 'Content-Type': 'application/json', ...authHeader() };
     opts.body = JSON.stringify(body);
   }
   const res = await fetchWithRetry(`${API_BASE_URL}${path}`, opts);
@@ -64,7 +75,7 @@ export async function apiPostJSON(path, body, isFormData = false) {
 }
 
 export async function apiGet(path) {
-  const res = await fetchWithRetry(`${API_BASE_URL}${path}`);
+  const res = await fetchWithRetry(`${API_BASE_URL}${path}`, { headers: authHeader() });
   if (!res.ok) {
     throw new Error(await readErrorDetail(res));
   }
