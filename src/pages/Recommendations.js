@@ -37,6 +37,16 @@ const INCLUDE_OPTIONS = [
   { key: 'accessory', label: 'Accessories', categories: ['accessory'] },
 ];
 
+// The category row (Tops/Bottoms/.../Accessories) and the include-filter
+// row above it both narrow the same fetch independently -- this is how a
+// category tap widens includeKeys to match instead of silently
+// contradicting it. "All" is handled separately (clears the restriction).
+const CATEGORY_TO_INCLUDE_KEY = {
+  Tops: 'clothes', Bottoms: 'clothes', Dresses: 'clothes',
+  Shoes: 'footwear', Bags: 'bag', Watches: 'watch',
+  Jewellery: 'jewelry', Accessories: 'accessory',
+};
+
 const EMOJI_BY_CATEGORY = {
   top: '👕', bottom: '👖', dress: '👗', footwear: '👟', bag: '👜',
   accessory: '🕶️', watch: '⌚', jewelry: '💎',
@@ -84,6 +94,7 @@ export default function Recommendations() {
     pendingRecommendations, setPendingRecommendations,
     highlightedItemId, setHighlightedItemId,
     fireAgentEvent, liked, likeItem, unlikeItem, registerItems, setScreenItems, setTryonItem,
+    queueOutfitActions, showToast,
   } = useSession();
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState('All');
@@ -319,10 +330,19 @@ export default function Recommendations() {
           setActiveOccasion(occasions.find((o) => o.toLowerCase() === want) || 'All');
           break;
         }
-        case 'set_department':
+        case 'set_department': {
+          // "adult" means "undo the kids range" -- fall back to whatever the
+          // scan detected rather than forcing a gender the customer never
+          // stated.
+          const d = payload.department;
+          const target = d === 'men' || d === 'male' ? 'male'
+            : d === 'kids' ? 'kids'
+              : d === 'adult' ? (scanData?.gender === 'male' ? 'male' : 'female')
+                : 'female';
           // eslint-disable-next-line no-use-before-define
-          chooseGender(payload.department === 'men' || payload.department === 'male' ? 'male' : 'female');
+          chooseGender(target);
           break;
+        }
         case 'set_include_filter': {
           const keys = (payload.include || []).flatMap((k) => (k === 'everything' ? [] : [INCLUDE_KEY[k] || k]));
           if ((payload.include || []).includes('everything')) setIncludeKeys([]);
@@ -455,7 +475,18 @@ export default function Recommendations() {
                   logEventNow(sessionId, product.id, 'add_to_cart', {
                     source: 'recommendations', action: 'add_to_outfit',
                   });
-                  notifyLiked(product);
+                  // This used to just call notifyLiked() -- the same thing
+                  // the heart icon does -- so the button's own label was a
+                  // lie: nothing about it ever reached Outfit Builder.
+                  // queueOutfitActions is the real pipe into that page (see
+                  // OutfitBuilder.js's consumeOutfitActions effect) -- the
+                  // same mechanism Aria's voice tools already use, so a
+                  // manual tap and a spoken "add this to my outfit" now
+                  // land in the exact same place.
+                  queueOutfitActions([
+                    { type: 'set_outfit_item_direct', payload: { category: product.category, item: product } },
+                  ]);
+                  showToast(`Added to your outfit — say "I'm done" to see the full look.`, 'success');
                 }}
               >
                 Add to Outfit
@@ -544,12 +575,16 @@ export default function Recommendations() {
           </span>
           {profile?.gender_locked ? (
             <span className="rec-meta-tag">
-              <strong>Range:</strong>&nbsp;{detectedGender === 'male' ? "Men's" : "Women's"}
+              <strong>Range:</strong>&nbsp;{detectedGender === 'male' ? "Men's" : detectedGender === 'kids' ? 'Kids' : "Women's"}
             </span>
           ) : (
           <span className="rec-meta-tag rec-range-control" title="Tap to change which range you see">
             <strong>Range:</strong>
-            {['female', 'male'].map((g) => (
+            {/* "Kids" is deliberately a TAP, never something the scan can
+                decide. Guessing a shopper's age from the camera to unlock
+                children's clothing would be wrong in both directions; a
+                parent shopping for their child just says so. */}
+            {['female', 'male', 'kids'].map((g) => (
               <button
                 key={g}
                 type="button"
@@ -557,7 +592,7 @@ export default function Recommendations() {
                 disabled={savingGender}
                 onClick={() => chooseGender(g)}
               >
-                {g === 'female' ? "Women's" : "Men's"}
+                {g === 'female' ? "Women's" : g === 'male' ? "Men's" : 'Kids'}
               </button>
             ))}
             {detectedGender === 'unknown' && <em>not sure — pick one</em>}
@@ -614,7 +649,26 @@ export default function Recommendations() {
         <FilterChips
           filters={categories}
           activeFilter={activeFilter}
-          onSelect={(f) => { markInteraction(); setActiveFilter(f); }}
+          onSelect={(f) => {
+            markInteraction();
+            setActiveFilter(f);
+            // "What should I include?" (includeKeys) and this category row
+            // are two INDEPENDENT filters that both go into the same fetch
+            // (see fetchRecommendations) -- tapping "Bags" here did nothing
+            // if includeKeys was still locked to "Clothes" from onboarding,
+            // because the request silently asked for category=bag AND
+            // include=[top,bottom,dress] at once, which can only return
+            // nothing. A category tap must always actually show that
+            // category, so it widens the include filter to match rather
+            // than fighting it. "All" clears the restriction entirely,
+            // matching the plain-English reading of the word.
+            if (f === 'All') {
+              setIncludeKeys([]);
+            } else {
+              const needed = CATEGORY_TO_INCLUDE_KEY[f];
+              if (needed) setIncludeKeys((prev) => (prev.includes(needed) ? prev : [...prev, needed]));
+            }
+          }}
         />
         {occasions.length > 1 && (
           <FilterChips

@@ -219,7 +219,20 @@ export default function OutfitBuilder() {
           outfitSlot.slot,
         );
       }
-      setSelectedItems(filled);
+      // Merge, never overwrite: a slot the customer filled THEMSELVES
+      // (walked in from Recommendations via "Add to Outfit", or picked by
+      // hand here) must survive an auto-complete or the on-mount auto-fetch
+      // below -- only a slot that is empty, or was itself a previous AI
+      // guess (aiPicked), is fair game to replace. Real items added via
+      // handleAddItem never carry aiPicked, which is exactly what makes
+      // them distinguishable here.
+      setSelectedItems((prev) => {
+        const merged = { ...filled };
+        for (const slot of Object.keys(prev)) {
+          if (prev[slot] && !prev[slot].aiPicked) merged[slot] = prev[slot];
+        }
+        return merged;
+      });
       setAiOverallScore(data.overall_score);
     } catch (err) {
       setAiError(err.message);
@@ -250,6 +263,29 @@ export default function OutfitBuilder() {
             i.name.toLowerCase().includes(desc)
           );
           if (item) handleAddItem(cat, item);
+          break;
+        }
+        // From Recommendations.js's "Add to Outfit" button (and Aria's
+        // equivalent voice path) -- carries the REAL catalog item the
+        // customer already saw, not a description to fuzzy-match like
+        // set_outfit_item above. category is the backend's vocabulary
+        // (top/bottom/dress/footwear/bag/watch/jewelry/accessory);
+        // BACKEND_CATEGORY_TO_SLOT maps it onto this page's mannequin slots.
+        case 'set_outfit_item_direct': {
+          const raw = action.payload?.item;
+          const slot = BACKEND_CATEGORY_TO_SLOT[action.payload?.category];
+          if (raw && slot) {
+            handleAddItem(slot, {
+              id: raw.id,
+              name: raw.name,
+              brand: raw.brand || (raw.color ? raw.color[0].toUpperCase() + raw.color.slice(1) : ''),
+              emoji: raw.emoji || SLOT_EMOJI[slot] || '✨',
+              color: raw.color || '#6C63FF',
+              image_url: raw.image_url || null,
+              // No aiPicked flag -- this is what makes fetchAiOutfit's merge
+              // treat it as a customer choice it must never overwrite.
+            });
+          }
           break;
         }
         case 'remove_outfit_item':

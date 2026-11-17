@@ -53,6 +53,12 @@ export default function BodyScanner() {
   const streamRef = useRef(null);
   const canvasRef = useRef(document.createElement('canvas'));
   const scanResultRef = useRef(null);
+  // Touchless auto-start: the mirror begins scanning on its own once the
+  // camera is live, so a customer never has to reach for a button. Only
+  // ONCE per visit (guard ref) -- after an explicit "New Scan" they drive it
+  // manually, so reviewing results isn't interrupted by a fresh auto-scan.
+  const autoStartedRef = useRef(false);
+  const [autoCountdown, setAutoCountdown] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +99,7 @@ export default function BodyScanner() {
   }, []);
 
   const startScan = useCallback(async () => {
+    setAutoCountdown(null);
     setScanState('scanning');
     setScanProgress(0);
     setCurrentStage(0);
@@ -132,6 +139,28 @@ export default function BodyScanner() {
     setScanError(null);
     scanResultRef.current = null;
   }, []);
+
+  // Auto-start once the camera is live and a session exists -- a short
+  // countdown gives the customer a moment to stand in frame first, and the
+  // "Start Body Scan" button still works if they'd rather trigger it.
+  useEffect(() => {
+    if (autoStartedRef.current) return undefined;
+    if (!(cameraReady && sessionId && scanState === 'idle')) return undefined;
+    autoStartedRef.current = true;
+    let n = 3;
+    setAutoCountdown(n);
+    const tick = setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        clearInterval(tick);
+        setAutoCountdown(null);
+        startScan();
+      } else {
+        setAutoCountdown(n);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [cameraReady, sessionId, scanState, startScan]);
 
   useEffect(() => {
     if (scanState !== 'scanning') return;
@@ -506,10 +535,14 @@ export default function BodyScanner() {
                 icon={<RiBodyScanLine />}
                 disabled={!cameraReady || !sessionId}
               >
-                {cameraReady ? 'Start Body Scan' : cameraError ? 'Camera Unavailable' : 'Waiting for Camera...'}
+                {autoCountdown != null
+                  ? `Scanning in ${autoCountdown}…`
+                  : cameraReady ? 'Start Body Scan' : cameraError ? 'Camera Unavailable' : 'Waiting for Camera...'}
               </AnimatedButton>
               <p className="scanner-hint" style={cameraError ? { color: 'var(--error, #ef4444)' } : undefined}>
-                {cameraReady
+                {autoCountdown != null
+                  ? 'Starting automatically — stand in frame. Tap to start now.'
+                  : cameraReady
                   ? 'Stand still and ensure good lighting for best results'
                   : cameraError
                   ? `Camera error: ${cameraError}. Check your browser's camera permission for this site, and make sure no other app/tab is using the camera.`
