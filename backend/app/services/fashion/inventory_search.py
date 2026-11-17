@@ -804,11 +804,33 @@ def recommend_items(
         if hard_filtered:
             candidates = hard_filtered
 
+    # STAGE C config: two-tower personalization blend (see two_tower.py).
+    # Resolved here (not inside the no-anchor/with-anchor branches below)
+    # because it also decides whether embeddings need hydrating. Defaults to
+    # off -- get_active_config returns this default untouched unless a
+    # session was explicitly assigned to a registered "stage_c_neural_blend"
+    # variant, so every session keeps today's exact behavior unless that
+    # config is activated. See two_tower.py's module docstring for why this
+    # stays an opt-in experiment rather than the default: the checkpoint is
+    # trained on synthetic interactions, not real customer behaviour.
+    neural_cfg = {"enabled": False, "weight": 0.0}
+    if session_id:
+        try:
+            from app.services.fashion.model_registry import get_active_config
+            neural_cfg = get_active_config("stage_c_neural_blend", session_id, neural_cfg)
+        except Exception as e:
+            print(f"[recommend_items] Stage C config lookup failed (non-fatal, off): {e}")
+    neural_on = bool(neural_cfg.get("enabled")) and float(neural_cfg.get("weight", 0)) > 0
+    if neural_on:
+        from app.services.fashion.two_tower import is_available as _two_tower_available
+        neural_on = _two_tower_available()  # checkpoint missing locally -> degrade quietly, skip the hydration cost too
+
     # Hydrate embedding/style_tags whenever we'll need them -- Stage B
-    # compatibility ranking (anchor_items) or Stage B' skip-pattern penalty
-    # (skip_signal_active) both need fields match_inventory's RPC doesn't
-    # return. One bulk query covers both consumers.
-    need_hydration = bool(anchor_items) or skip_signal_active
+    # compatibility ranking (anchor_items), Stage B' skip-pattern penalty
+    # (skip_signal_active), or Stage C's two-tower blend (neural_on) all
+    # need fields match_inventory's RPC doesn't return. One bulk query
+    # covers every consumer.
+    need_hydration = bool(anchor_items) or skip_signal_active or neural_on
     if need_hydration and candidates:
         candidate_ids = [c["id"] for c in candidates if c.get("id")]
         if candidate_ids:
@@ -863,9 +885,39 @@ def recommend_items(
         except Exception as e:
             print(f"[recommend_items] skip-penalty scoring failed (non-fatal, showing unfiltered): {e}")
 
+    # STAGE C: two-tower personalization (see two_tower.py's module
+    # docstring for why this is opt-in rather than default). Scored once
+    # here so both branches below can use it: with an anchor outfit, it
+    # blends into Stage B's compatibility formula; with none -- the FIRST
+    # recommendation of a session, which Stage B otherwise leaves untouched
+    # -- it blends directly with Stage A's own cosine similarity, so this is
+    # the one case where Stage C can actually change anything on its own.
+    neural_scores = {}
+    if neural_on and candidates:
+        try:
+            from app.services.fashion.two_tower import score_items
+            user_ctx = {"depth": depth, "undertone": undertone, "body_shape": body_shape,
+                        "occasion": occasion, "height_cm": height_cm}
+            neural_scores = score_items(user_ctx, candidates)
+        except Exception as e:
+            print(f"[recommend_items] two-tower scoring failed (non-fatal, rule-only): {e}")
+
+    if neural_scores and not anchor_items:
+        weight = float(neural_cfg.get("weight", 0))
+        for c in candidates:
+            n = neural_scores.get(c.get("id"))
+            base = c.get("similarity")
+            if n is not None and base is not None:
+                c["neural_score"] = n
+                c["blended_score"] = round((1 - weight) * base + weight * n, 4)
+        if any("blended_score" in c for c in candidates):
+            candidates.sort(
+                key=lambda c: c.get("blended_score", c.get("similarity") or 0), reverse=True)
+
     # STAGE B: compatibility re-ranking against the customer's current
     # outfit anchor (cart/tryon/favorites). If no anchor was supplied this
-    # is a no-op that leaves Stage A's (skip-penalty-adjusted) ordering alone.
+    # is a no-op that leaves Stage A's (skip-penalty-adjusted, Stage-C-
+    # blended) ordering alone.
     if anchor_items:
         anchor_ids = [a["id"] for a in anchor_items if a.get("id") and not a.get("embedding")]
         if anchor_ids:
@@ -893,7 +945,9 @@ def recommend_items(
         from app.services.fashion.compatibility import rerank_by_compatibility
         # Rerank the WIDER candidate pool, not just top_k, so a great
         # compatibility match that Stage A had at rank 15 can still surface.
-        candidates = rerank_by_compatibility(candidates, anchor_items, top_k=max(top_k, 8), session_id=session_id)
+        candidates = rerank_by_compatibility(
+            candidates, anchor_items, top_k=max(top_k, 8), session_id=session_id,
+            neural_scores=neural_scores, neural_weight=float(neural_cfg.get("weight", 0)))
 
     candidates = _apply_budget_filter(candidates, budget_value)[:top_k]
 

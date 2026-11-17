@@ -225,6 +225,8 @@ def score_compatibility(
     item: dict, anchors: list[dict],
     semantic_override: float | None = None,
     weights: dict | None = None,
+    neural_score: float | None = None,
+    neural_weight: float = 0.0,
 ) -> dict:
     """Full compatibility score for one candidate against the anchor outfit.
 
@@ -236,6 +238,15 @@ def score_compatibility(
     a neon-orange candidate that happens to have high semantic similarity to
     a beige-tone anchor is still penalized by the color-compat check, and
     a rule-perfect but semantically-off match doesn't dominate either.
+
+    neural_score / neural_weight: Stage C's two-tower personalization score
+    for this item (see two_tower.py), blended in AFTER the rule-based total
+    is computed -- never replacing it. neural_weight defaults to 0.0, which
+    makes this identical to the pre-Stage-C formula; only a session assigned
+    to the "stage_c_neural_blend" A/B variant (see model_registry.py) passes
+    a nonzero weight. neural_score is None whenever the item had no usable
+    embedding or Stage C isn't active, in which case this is a no-op exactly
+    as if the parameter were never added.
 
     Returns a dict with the total score plus the component breakdown, so
     the recommender can (a) log which piece drove the ranking for
@@ -264,21 +275,24 @@ def score_compatibility(
     # regardless of how well it scores otherwise; additive on the rest.
     base = w["semantic"] * semantic + w["color"] * color + w["formality"] * formality + w["style"] * style
     total = base * diversity
-    return {
-        "score": round(total, 3),
-        "components": {
-            "semantic": round(semantic, 3),
-            "color": round(color, 3),
-            "formality": round(formality, 3),
-            "style": round(style, 3),
-            "diversity": round(diversity, 3),
-        },
+    components = {
+        "semantic": round(semantic, 3),
+        "color": round(color, 3),
+        "formality": round(formality, 3),
+        "style": round(style, 3),
+        "diversity": round(diversity, 3),
     }
+    if neural_score is not None and neural_weight > 0:
+        components["neural"] = round(neural_score, 3)
+        total = (1 - neural_weight) * total + neural_weight * neural_score
+    return {"score": round(total, 3), "components": components}
 
 
 def rerank_by_compatibility(
     candidates: list[dict], anchors: list[dict], top_k: int = 3,
     session_id: str | None = None,
+    neural_scores: dict | None = None,
+    neural_weight: float = 0.0,
 ) -> list[dict]:
     """Re-rank Stage A retrieval by compatibility with the anchor outfit.
 
@@ -290,6 +304,12 @@ def rerank_by_compatibility(
       customer never sees the ranking formula change mid-conversation.
       Omitted (None) always uses DEFAULT_STAGE_B_WEIGHTS -- existing callers
       that don't pass this keep today's exact behavior, unchanged.
+    - neural_scores / neural_weight: Stage C's two-tower personalization
+      scores (see two_tower.py and inventory_search.recommend_items, which
+      resolves the "stage_c_neural_blend" A/B config and computes these).
+      Both default to empty/0, which makes this byte-for-byte the
+      pre-Stage-C formula -- existing callers that don't pass them are
+      unaffected.
 
     If no anchors are given, this is a no-op that returns the first top_k
     candidates unchanged -- pure Stage A behavior. That's the right thing
@@ -333,7 +353,9 @@ def rerank_by_compatibility(
 
     scored = []
     for c, pct in zip(candidates, percentiles):
-        s = score_compatibility(c, anchors, semantic_override=pct, weights=weights)
+        n_score = (neural_scores or {}).get(c.get("id"))
+        s = score_compatibility(c, anchors, semantic_override=pct, weights=weights,
+                                 neural_score=n_score, neural_weight=neural_weight)
         c = dict(c)  # don't mutate caller's list
         c["compatibility_score"] = s["score"]
         c["compatibility_breakdown"] = s.get("components")
